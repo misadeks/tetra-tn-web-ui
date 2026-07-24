@@ -1,0 +1,42 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# --- Virtualenvs ---
+.venv/
+venv/
+env/
+
+# --- Tooling / IDE ---
+.idea/
+.vscode/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Runtime / captured artifacts ---
+# Wire captures written by the servers/fake stack (may contain live identities
+# and traffic); regenerated on every run.
+ws-log-*.jsonl
+# Cached self-signed TLS material.
+*.pem
+
+# --- Local archives / bundles ---
+*.zip
+
+# --- Third-party ETSI TETRA ACELP codec (NOT redistributable here) ---
+# The EN 300 395-2 reference source is ETSI-copyrighted and must be obtained
+# separately. See native/ETSI-CODEC.md. The compiled libraries are derived
+# from it (and are arch-specific build artifacts) so they are excluded too.
+native/etsi/
+native/*.dll
+native/*.so
+native/*.dylib
+native/*.lib
+native/*.exp
+native/*.obj
+native/*.o

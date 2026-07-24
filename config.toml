@@ -1,0 +1,33 @@
+# TNMM Demo UI configuration.
+# Mirrors the BlueStation stack's [command]/[telemetry] sections.
+# The stack dials OUT to these host/ports (stack = WS client, this app = WS server).
+
+# Control channel: UI -> stack commands, stack -> UI responses (same socket).
+[command]
+host = "0.0.0.0"
+port = 9102
+use_tls = false
+# ca_cert = "certs/server.pem"     # PEM containing server cert+key when use_tls=true
+username = ""                       # empty = accept all (demo mode)
+password = ""
+
+# Telemetry channel: stack -> UI events only (receive-only).
+[telemetry]
+host = "0.0.0.0"
+port = 9101
+use_tls = false
+# ca_cert = "certs/server.pem"
+username = ""
+password = ""
+
+# Browser-facing dashboard (plain HTTP + a local WebSocket, not part of the stack protocol).
+[dashboard]
+host = "0.0.0.0"
+port = 8080
+poll_interval = 2.0                 # seconds between GetState polls while control is connected
+
+# How this radio registers. This is an operator preference, NOT identity.
+# The radio's identity (ISSI, home MCC/MNC) is owned by the MS and read live
+# from its runtime state — it is never configured here.
+[registration]
+registration_type = "RegistrationToIndicatedCell"   # or "PeriodicRegistration"

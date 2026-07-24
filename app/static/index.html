@@ -1,0 +1,2469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#06080b" />
+<title>TETRA MS — TNMM terminal</title>
+<style>
+  :root {
+    --bg: #06080b;
+    --glass1: #0f1620; --glass2: #0a0f16;
+    --surface: #131c26; --surface2: #0f1720;
+    --line: rgba(255,255,255,.07); --line2: rgba(255,255,255,.13);
+    --txt: #eaf0f5; --muted: #8b98a5; --faint: #58656f;
+    --accent: #33a7dd;
+    --green: #37c06a; --red: #f0555a; --amber: #e7a72b; --blue: #4b9be6;
+    --teal: #1fb0bd; --indigo: #7b86e8; --gold: #d6a640;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    font-family: "Inter", "Segoe UI", Roboto, system-ui, sans-serif;
+    color: var(--txt);
+    display: flex; align-items: stretch; justify-content: center;
+    height: 100vh; height: 100dvh; height: var(--app-h, 100dvh);
+    overflow: hidden; padding: 0;
+  }
+
+  /* ---------- the display (screen only, fills the viewport) ---------- */
+  .device {
+    position: relative; width: 100%;
+    height: 100vh; height: 100dvh; height: var(--app-h, 100dvh);
+    display: flex; flex-direction: column; overflow: hidden;
+    background: linear-gradient(180deg, var(--glass1), var(--glass2));
+    border-radius: 0; border: none;
+  }
+  /* Local Site Trunking (LST): the whole UI takes on a green cast. */
+  .device.lst { --accent: var(--green); }
+  .device.lst::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 40;
+                       background: radial-gradient(130% 85% at 50% 0%, rgba(55,192,106,.17), rgba(55,192,106,.05) 46%, transparent 72%);
+                       box-shadow: inset 0 0 0 2px rgba(55,192,106,.5); }
+  .device.lst .statusbar { background: linear-gradient(180deg, #0c2417, #08160e); border-bottom-color: rgba(55,192,106,.45); }
+  .device.lst .sb-net { color: #9be6b6; }
+  .ic { width: 20px; height: 20px; display: block; flex: none; }
+
+  /* ---------- status bar ---------- */
+  .statusbar {
+    min-height: 46px; flex: none; display: flex; align-items: center; gap: 9px;
+    padding: 0 14px; padding-top: env(safe-area-inset-top);
+    background: linear-gradient(180deg, #0e1822, #0b131b); border-bottom: 1px solid var(--line);
+    font-size: 12.5px; color: #cdd9e2;
+  }
+  .sig { display: flex; align-items: flex-end; gap: 2px; height: 15px; }
+  .sig i { width: 3px; background: #35424c; border-radius: 1px; }
+  .sig i.on { background: #dbe6ee; }
+  .sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:7px}.sig i:nth-child(3){height:10px}
+  .sig i:nth-child(4){height:12px}.sig i:nth-child(5){height:15px}
+  .ant { display: inline-flex; align-items: center; color: #6c7a86; }
+  .ant svg { width: 19px; height: 19px; display: block; }
+  .ant.wst { color: #dbe6ee; }               /* wide-area trunking → full, steady */
+  .ant.lst { color: var(--green); animation: antblink 1s steps(1) infinite; }  /* local site trunking → blinking */
+  .ant.off { color: #ff9a9d; }               /* no link to MS */
+  @keyframes antblink { 50% { opacity: .18; } }
+  .sb-net { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 96px; }
+  .sb-scan { display: none; align-items: center; color: var(--accent); }
+  .sb-scan.on { display: inline-flex; }
+  .sb-scan .ic { width: 16px; height: 16px; }
+  .sb-sp { flex: 1; }
+  .lnk { font-size: 10px; font-weight: 700; width: 19px; height: 18px; border-radius: 6px; letter-spacing: .3px;
+         display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.06); color: var(--faint); }
+  .lnk.on { background: rgba(55,192,106,.18); color: #79dfa0; }
+  .lnk.off { background: rgba(240,85,90,.14); color: #ff9a9d; }
+  .clock { font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: .3px; }
+  .batt { width: 24px; height: 13px; border: 1.5px solid #7f8f9b; border-radius: 3px; position: relative; }
+  .batt::after { content:""; position:absolute; right:-4px; top:3.5px; width:2.5px; height:6px; background:#7f8f9b; border-radius:0 2px 2px 0; }
+  .batt i { position:absolute; inset:2px; width:72%; background: var(--green); border-radius:1px; }
+
+  /* ---------- persistent top title bar ---------- */
+  .header { height: 46px; flex: none; display: flex; align-items: center; justify-content: center; padding: 0 12px;
+            background: linear-gradient(180deg, #0e1822, #0b131b); border-bottom: 1px solid var(--line); }
+  .htitle { font-size: 16px; font-weight: 600; letter-spacing: .3px; text-align: center;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .htitle.date { color: var(--muted); font-weight: 500; letter-spacing: 1px; }
+
+  /* ---------- stage + scroll ---------- */
+  .stage { flex: 1; min-height: 0; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; -webkit-overflow-scrolling: touch; scrollbar-gutter: stable;
+            position: relative; z-index: 1; }
+  /* Active group-call ambience: sonar rings pulsing out behind the content. */
+  .callwave { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden;
+              opacity: 0; transition: opacity .5s ease; }
+  .stage.gcall.talking .callwave { opacity: 1; }
+  .callwave span { position: absolute; left: 50%; top: 42%; width: 44px; height: 44px; margin: -22px 0 0 -22px;
+                   border-radius: 50%; border: 2px solid var(--accent); opacity: 0; transform: scale(.3);
+                   animation: sonar 3.6s ease-out infinite; }
+  .callwave span:nth-child(2) { animation-delay: 1.2s; }
+  .callwave span:nth-child(3) { animation-delay: 2.4s; }
+  @keyframes sonar { 0% { opacity: .45; transform: scale(.3); } 70% { opacity: .07; } 100% { opacity: 0; transform: scale(9); } }
+  .scroll::-webkit-scrollbar { width: 5px; } .scroll::-webkit-scrollbar-thumb { background: #24313d; border-radius: 3px; }
+
+  /* ---------- home hero ---------- */
+  .hero { position: relative; overflow: hidden; border-radius: 18px; padding: 18px 16px 16px; margin-bottom: 18px;
+          background: linear-gradient(160deg, #16212e, #0e1620); border: 1px solid var(--line); }
+  .hero::before { content:""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--faint); }
+  .hero.reg::before { background: var(--green); } .hero.no::before { background: var(--red); } .hero.busy::before { background: var(--amber); }
+  .hero-k { font-size: 11px; letter-spacing: 2px; color: var(--muted); font-weight: 600; }
+  .hero-state { display: flex; align-items: center; gap: 10px; font-size: 25px; font-weight: 750; letter-spacing: .3px; margin-top: 6px; }
+  .sdot { width: 12px; height: 12px; border-radius: 50%; }
+  .sdot.g { background: var(--green); box-shadow: 0 0 10px rgba(55,192,106,.7); }
+  .sdot.r { background: var(--red); box-shadow: 0 0 10px rgba(240,85,90,.6); }
+  .sdot.a { background: var(--amber); box-shadow: 0 0 10px rgba(231,167,43,.7); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .hero-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+  .hero-id { display: flex; align-items: flex-start; gap: 22px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .hero-issi { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 1px; line-height: 1; }
+  .hero-net { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; padding-top: 4px; }
+  .hero-id small { display: block; font-size: 9.5px; letter-spacing: 1.5px; color: var(--muted); font-weight: 600; margin-top: 6px; }
+
+  /* ---------- idle / home screen (Motorola-style: ISSI on top, talkgroup hero) ---------- */
+  .idle { min-height: 100%; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .idle-tg { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; padding: 18px 0; }
+  .idle-tg-label { font-size: 11px; letter-spacing: 4px; color: var(--faint); font-weight: 700; margin-bottom: 12px; }
+  .idle-tg-name { font-size: 50px; font-weight: 750; line-height: 1.02; letter-spacing: .5px; word-break: break-word;
+                  background: linear-gradient(180deg, #ffffff, #b9cad6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .idle-tg-name.dim { background: none; color: var(--faint); -webkit-text-fill-color: var(--faint); }
+  .idle-tg-sub { font-size: 14px; color: var(--muted); margin-top: 12px; }
+  .idle-scan { display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; padding: 7px 14px; border-radius: 999px;
+               font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--faint);
+               background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+  .idle-scan.on { background: rgba(51,167,221,.16); color: #7ecbef; border-color: rgba(51,167,221,.35); }
+  .idle-scan .ic { width: 15px; height: 15px; }
+
+  /* ---------- groups management ---------- */
+  .gstatus { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; color: #cbd7e0;
+             padding: 11px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); margin-bottom: 12px; }
+  .gstatus .ic { width: 17px; height: 17px; color: var(--accent); flex: none; }
+  .glist { display: flex; flex-direction: column; gap: 8px; }
+  .grow { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px;
+          background: var(--surface); border: 1px solid var(--line); }
+  .gtag { font-size: 10px; font-weight: 800; letter-spacing: .8px; padding: 3px 8px; border-radius: 6px; flex: none; }
+  .gtag.active { background: rgba(55,192,106,.18); color: #79dfa0; }
+  .gtag.scan { background: rgba(51,167,221,.16); color: #7ecbef; }
+  .gfolder { font-size: 11px; letter-spacing: 2px; color: var(--faint); font-weight: 700;
+             margin: 16px 4px 8px; text-transform: uppercase; }
+  .gfolder:first-child { margin-top: 2px; }
+  .tgrow { cursor: pointer; }
+  .tgrow:active { background: #16202b; }
+  .tgbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .tgname { font-size: 17px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tgsub { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .gadd1 { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line2); background: rgba(55,192,106,.12);
+           color: #79dfa0; display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
+  .gadd1:active { background: rgba(55,192,106,.24); }
+  .gadd1 .ic { width: 18px; height: 18px; }
+
+  /* ---------- talkgroup badges (shared) ---------- */
+  .cyc-badge { margin-top: 9px; padding: 3px 11px; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+  .cyc-badge.tx { background: rgba(55,192,106,.18); color: #79dfa0; }
+  .cyc-badge.scan { background: rgba(51,167,221,.16); color: #7ecbef; }
+
+  /* ---------- active group-call panel ("GROUP IN USE") ---------- */
+  .gcp { flex: 1; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; text-align: center; }
+  .gcp-tag { font-size: 11px; letter-spacing: 4px; color: var(--accent); font-weight: 800; margin-bottom: 14px; display: inline-flex; align-items: center; gap: 8px; }
+  .gcp-tag::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: gcpBeat 1.6s infinite; }
+  .gcp-folder { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: #cfe0ec; font-weight: 600;
+                padding: 5px 12px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); margin-bottom: 12px; max-width: 90%; }
+  .gcp-folder .ic { width: 14px; height: 14px; color: var(--accent); flex: none; }
+  .gcp-folder span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gcp-name { font-size: 44px; font-weight: 760; line-height: 1.02; letter-spacing: .4px; word-break: break-word;
+              background: linear-gradient(180deg, #ffffff, #b9cad6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .gcp-status { margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 7px; min-height: 78px; justify-content: center; }
+  .gcp-badge { padding: 4px 13px; border-radius: 999px; font-size: 10.5px; font-weight: 800; letter-spacing: 1.4px; }
+  .gcp-badge.live { background: rgba(210,59,65,.2); color: #ff9a9d; }
+  .gcp-badge.idle { background: rgba(51,167,221,.16); color: #7ecbef; }
+  .gcp-talker-label { font-size: 10.5px; letter-spacing: 3px; color: var(--faint); font-weight: 700; margin-top: 2px; }
+  .gcp-talker { font-size: 22px; font-weight: 700; color: #fff; display: inline-flex; align-items: center; gap: 10px; }
+  .gcp-talker .dot { width: 12px; height: 12px; border-radius: 50%; background: #37c06a; flex: none; animation: gcpBeat 1s infinite; }
+  .gcp-sub { font-size: 13px; color: var(--muted); }
+  .gcp-talk-time { font-size: 15px; font-weight: 700; color: #9fe3b6; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin-top: 2px; }
+  @keyframes gcpBeat { 0% { box-shadow: 0 0 0 0 rgba(55,192,106,.55); } 70% { box-shadow: 0 0 0 12px rgba(55,192,106,0); } 100% { box-shadow: 0 0 0 0 rgba(55,192,106,0); } }
+
+  /* ---------- home hero: talkgroup selector (primary function) ---------- */
+  .idle-mid { flex: 1; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 8px 0; }
+  /* PTT lives in its own fixed dock at the bottom so it never moves when the hero
+     content above it changes (cycler <-> active group-call panel <-> fallback). */
+  .ptt-dock { flex: none; width: 100%; }
+  .ptt-dock:empty { display: none; }
+  .hcyc { display: flex; align-items: center; gap: 10px; width: 100%; }
+  .hcyc-arrow { width: 58px; height: 96px; flex: none; border-radius: 16px; border: 1px solid var(--line2);
+                background: linear-gradient(160deg, #17222f, #0f1822); color: #cfe0ec;
+                display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .1s, background .12s; }
+  .hcyc-arrow:active { background: #1b2836; transform: scale(.95); }
+  .hcyc-arrow[disabled] { opacity: .3; cursor: default; }
+  .hcyc-arrow .ic { width: 34px; height: 34px; }
+  .hcyc-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; text-align: center; }
+  .hcyc-name { font-size: 40px; font-weight: 760; line-height: 1.02; letter-spacing: .4px; word-break: break-word; margin: 6px 0 3px;
+               background: linear-gradient(180deg, #ffffff, #b9cad6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hcyc-sub { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cyc-badge.sel { background: rgba(255,255,255,.06); color: var(--muted); }
+  .hcyc-select { width: 100%; max-width: 340px; margin-top: 2px; }
+  .folder-btn { display: inline-flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-radius: 999px; cursor: pointer;
+                background: var(--surface); border: 1px solid var(--line); color: #cfe0ec; font-size: 13px; font-weight: 600; font-family: inherit; max-width: 100%; }
+  .folder-btn:active { transform: scale(.98); }
+  .folder-btn .fb-ic { width: 15px; height: 15px; color: var(--accent); flex: none; }
+  .folder-btn .fb-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .folder-btn .fb-chev { width: 16px; height: 16px; color: var(--faint); flex: none; }
+  /* zone / folder selection screen */
+  .zrow { display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: 14px; cursor: pointer;
+          background: var(--surface); border: 1px solid var(--line); transition: background .12s, transform .05s; }
+  .zrow:active { transform: scale(.99); background: #16202b; }
+  .zrow.on { border-color: rgba(51,167,221,.5); background: rgba(51,167,221,.1); }
+  .zic { width: 38px; height: 38px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex: none;
+         background: rgba(51,167,221,.14); color: var(--accent); }
+  .zbody { flex: 1; min-width: 0; }
+  .zname { font-size: 16px; font-weight: 600; }
+  .zsub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .zcheck { width: 20px; height: 20px; color: var(--accent); flex: none; }
+  .gname { flex: 1; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .gdet { width: 38px; height: 38px; border-radius: 10px; border: 1px solid var(--line2); background: rgba(240,85,90,.12);
+          color: #ff9a9d; display: flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
+  .gdet:active { background: rgba(240,85,90,.24); }
+  .gdet .ic { width: 18px; height: 18px; }
+  .gsub { font-size: 12px; font-weight: 500; color: var(--faint); margin-top: 2px; }
+  .sltog { width: 52px; height: 30px; border-radius: 16px; border: 1px solid var(--line2);
+           background: rgba(255,255,255,.06); position: relative; cursor: pointer; flex: none; transition: background .15s; }
+  .sltog .knob { position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+                 background: #8fa3b8; transition: left .15s, background .15s; }
+  .sltog.on { background: rgba(55,192,106,.28); border-color: rgba(55,192,106,.5); }
+  .sltog.on .knob { left: 25px; background: #79dfa0; }
+  .gadd { display: flex; gap: 10px; margin-top: 16px; }
+  .gin { flex: 1; height: 52px; background: #070d14; color: #cde; border: 1px solid var(--line2); border-radius: 12px;
+         padding: 0 14px; font-size: 16px; font-family: inherit; }
+  .gin:focus { outline: none; border-color: var(--accent); }
+  .gattach { width: auto; height: 52px; margin-top: 0; padding: 0 20px; white-space: nowrap; }
+
+  /* ---------- menu list ---------- */
+  .mlabel { font-size: 11px; letter-spacing: 2px; color: var(--faint); font-weight: 600; margin: 2px 4px 10px; }
+  .menu { display: flex; flex-direction: column; gap: 8px; }
+  .mrow { display: flex; align-items: center; gap: 14px; padding: 13px 14px; border-radius: 14px; cursor: pointer;
+          background: var(--surface); border: 1px solid var(--line); transition: background .12s, transform .05s; }
+  .mrow:active { transform: scale(.99); background: #16202b; }
+  .mic { width: 38px; height: 38px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .mtx { flex: 1; font-size: 16px; font-weight: 500; }
+  .mbadge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--red); color: #fff;
+            font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .ic.chev { width: 18px; height: 18px; color: var(--faint); }
+
+  /* ---------- buttons ---------- */
+  .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 15px;
+         border-radius: 14px; border: none; cursor: pointer; font-size: 16px; font-weight: 600; color: #fff;
+         margin-top: 10px; letter-spacing: .2px; }
+  .btn:active { transform: scale(.985); }
+  .btn .ic { width: 19px; height: 19px; }
+  .btn.primary { background: linear-gradient(180deg, #2bb768, #1f9a55); }
+  .btn.danger { background: linear-gradient(180deg, #ef5a5f, #cf3f44); }
+  .btn.ghost { background: var(--surface); border: 1px solid var(--line); color: var(--txt); }
+  .btn.dormant { background: transparent; border: 1px dashed var(--line2); color: var(--muted); font-weight: 500; }
+  .btn[disabled] { opacity: .45; cursor: default; }
+
+  /* ---------- panels / kv / pills ---------- */
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 2px 14px; margin-bottom: 12px; }
+  .kv { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0;
+        border-bottom: 1px solid var(--line); font-size: 14px; }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: var(--muted); } .kv .v { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: .3px; }
+  .p-g { background: rgba(55,192,106,.16); color: #79dfa0; }
+  .p-r { background: rgba(240,85,90,.16); color: #ff9a9d; }
+  .p-a { background: rgba(231,167,43,.16); color: #f2c96b; }
+  .p-m { background: rgba(255,255,255,.07); color: var(--muted); }
+  .hint { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 4px 4px 12px; }
+  .hint b { color: #c4d0da; font-weight: 600; }
+
+  /* ---------- event list ---------- */
+  .evt { position: relative; display: flex; gap: 12px; align-items: center; padding: 12px; padding-left: 16px;
+         border-radius: 12px; background: var(--surface); border: 1px solid var(--line); margin-bottom: 8px; cursor: pointer; }
+  .evt:active { background: #16202b; }
+  .evt::before { content:""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--faint); }
+  .evt.green::before { background: var(--green); } .evt.red::before { background: var(--red); }
+  .evt.amber::before { background: var(--amber); } .evt.blue::before { background: var(--blue); }
+  .evt-ic { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .evt-ic .ic { width: 17px; height: 17px; }
+  .evt-tx { flex: 1; font-size: 14px; font-weight: 500; }
+  .evt-time { font-size: 11px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .empty { display: flex; flex-direction: column; align-items: center; gap: 12px; color: var(--muted);
+           margin-top: 64px; font-size: 14px; }
+  .empty .ic { width: 34px; height: 34px; opacity: .5; }
+
+  pre.code { background: #070d14; border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-size: 12px;
+             color: #b9ccd8; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; line-height: 1.5;
+             font-family: "Cascadia Code", "Consolas", monospace; }
+  textarea.editor { width: 100%; height: 320px; background: #070d14; color: #cde; border: 1px solid var(--line);
+                    border-radius: 12px; padding: 12px; font-family: "Cascadia Code", "Consolas", monospace;
+                    font-size: 12px; resize: none; line-height: 1.5; }
+
+  /* ---------- soft keys ---------- */
+  .softkeys { min-height: 62px; flex: none; display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 44px; gap: 8px;
+              align-items: center; align-content: center; padding: 9px 12px calc(9px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line);
+              background: linear-gradient(180deg, #0c141d, #0a1017); }
+  .sk { position: relative; height: 44px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface);
+        color: var(--txt); display: flex; align-items: center; justify-content: center; gap: 7px;
+        font-size: 13px; font-weight: 600; cursor: pointer; }
+  .sk:active { background: #16202b; }
+  .sk.danger { border-color: #b5343a; background: linear-gradient(180deg, #d23b41, #a82a2f); color: #fff; }
+  .sk.danger:active { background: #a82a2f; }
+  .sk .ic { width: 16px; height: 16px; }
+  .sk-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+              background: var(--red); color: #fff; font-size: 10px; font-weight: 700;
+              display: flex; align-items: center; justify-content: center; border: 2px solid #0b1017; }
+
+  /* ---------- alert dialog ---------- */
+  .alert-back { position: absolute; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+                background: rgba(3,7,12,.64); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+                padding: 24px; animation: afade .15s ease; }
+  .alert-card { width: 100%; max-width: 300px; background: #131c26; border: 1px solid var(--line2); border-radius: 18px;
+                box-shadow: 0 24px 60px rgba(0,0,0,.6); overflow: hidden; animation: apop .18s cubic-bezier(.2,.9,.3,1.3); }
+  .alert-top { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 11px; padding: 26px 22px 18px; }
+  .alert-ic { width: 54px; height: 54px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+              background: rgba(255,255,255,.06); }
+  .alert-ic svg { width: 27px; height: 27px; }
+  .alert-title { font-size: 17px; font-weight: 700; color: #fff; }
+  .alert-msg { font-size: 13.5px; line-height: 1.45; color: var(--muted); }
+  .alert-btn { display: block; width: 100%; padding: 14px; border: none; border-top: 1px solid var(--line);
+               background: transparent; color: #6ab0ff; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .alert-btn:active { background: rgba(255,255,255,.05); }
+  .alert-red .alert-ic { background: rgba(240,85,90,.16); color: var(--red); }
+  .alert-red .alert-btn { color: #ff8388; }
+  .alert-amber .alert-ic { background: rgba(231,167,43,.16); color: var(--amber); }
+  .alert-amber .alert-btn { color: #ffc663; }
+  .alert-green .alert-ic { background: rgba(55,192,106,.16); color: var(--green); }
+  .alert-green .alert-btn { color: #58d98a; }
+  @keyframes afade { from { opacity: 0; } }
+  @keyframes apop { from { opacity: 0; transform: scale(.92); } }
+
+  /* ---------- dialer ---------- */
+  .dial-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+  .chip { padding: 11px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface);
+          color: var(--muted); font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .chip.on { background: rgba(55,192,106,.16); border-color: rgba(55,192,106,.5); color: #8fe6ab; }
+  .dial-in { text-align: center; font-size: 26px; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+  .call-go { margin-top: 14px; }
+
+  /* ---------- keypad dialer ---------- */
+  .dialer { min-height: 100%; display: flex; flex-direction: column; }
+  .dial-mid { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 16px; min-height: 0; }
+  .dial-display { text-align: center; }
+  .dial-num { font-size: 34px; font-weight: 800; letter-spacing: 2px; color: #fff;
+              font-variant-numeric: tabular-nums; min-height: 42px; line-height: 42px; word-break: break-all; }
+  .dial-num.ph { color: var(--faint); font-weight: 600; font-size: 19px; letter-spacing: 1px; }
+  .dial-caption { font-size: 10.5px; letter-spacing: 3px; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+  .keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .key { height: 54px; border-radius: 14px; border: 1px solid var(--line2); cursor: pointer;
+         background: linear-gradient(180deg, #17222f, #0f1822); color: #e8f0f6; font-size: 23px; font-weight: 600;
+         display: flex; align-items: center; justify-content: center; touch-action: manipulation;
+         user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  .key:active { background: #1b2836; transform: scale(.97); }
+  .key.fn { color: var(--muted); }
+  .key.fn .ic { width: 24px; height: 24px; }
+  .key[disabled] { opacity: .35; cursor: default; }
+  .dial-actions { flex: none; margin-top: 12px; }
+  .btn.call-duplex[disabled], .ptt.dial-ptt[disabled] { opacity: .4; pointer-events: none; }
+
+  /* ---------- in-call screen ---------- */
+  .call-hero { text-align: center; padding: 22px 12px 12px; }
+  .call-dir { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+  .call-peer { font-size: 30px; font-weight: 800; color: #fff; margin-top: 4px; }
+  .call-sub { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .call-state { font-size: 15px; font-weight: 600; color: #8fe6ab; margin-top: 12px; }
+  .call-clock { font-size: 21px; font-weight: 700; color: #cfe9ff; font-variant-numeric: tabular-nums; letter-spacing: 1px; margin-top: 6px; }
+  .floor { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px; border-radius: 12px;
+           font-size: 13.5px; font-weight: 600; margin: 4px 0 12px; border: 1px solid var(--line); background: var(--surface); }
+  .floor .ic { width: 17px; height: 17px; }
+  .floor.me { background: rgba(240,85,90,.16); border-color: rgba(240,85,90,.5); color: #ff9a9d; }
+  .floor.other { background: rgba(107,176,255,.14); border-color: rgba(107,176,255,.45); color: #9cc7ff; }
+  .floor.wait { color: var(--amber); }
+  .floor.deny { color: #ff9a9d; }
+  .floor.idle { color: var(--muted); }
+  .ptt { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+         width: 100%; padding: 26px; border-radius: 18px; border: 1px solid var(--line2); cursor: pointer;
+         background: linear-gradient(180deg, #1a2430, #131b24); color: var(--txt); font-size: 15px; font-weight: 700;
+         letter-spacing: .4px; touch-action: none; user-select: none; -webkit-user-select: none;
+         -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  .ptt, .ptt * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; pointer-events: none; }
+  .ptt { pointer-events: auto; }
+  .ptt .ic { width: 30px; height: 30px; }
+  .ptt:active { transform: scale(.99); }
+  .ptt.req { background: linear-gradient(180deg, #4a3d16, #3a3011); border-color: rgba(231,167,43,.6); color: #f2c96b; }
+  .ptt.on { background: linear-gradient(180deg, #d23b41, #a82a2f); border-color: #ff8388; color: #fff;
+            box-shadow: 0 0 0 4px rgba(240,85,90,.2); }
+  .ptt.deny { background: linear-gradient(180deg, #3a1f21, #2c1719); border-color: rgba(240,85,90,.5); color: #ff9a9d; }
+  .ptt.other { background: linear-gradient(180deg, #14283c, #10202f); border-color: rgba(107,176,255,.5); color: #9cc7ff; }
+  .ptt.locked { background: linear-gradient(180deg, #1b1d22, #141519); border-color: rgba(255,255,255,.12); color: var(--muted); opacity: .7; }
+  /* compact group-screen PTT with an inline talkgroup sub-label */
+  .gptt { padding: 16px; margin: 6px 0 14px; flex-direction: row; gap: 12px; }
+  .gptt .ic { width: 24px; height: 24px; }
+  .gptt span { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
+  .gptt em { font-style: normal; font-size: 11.5px; font-weight: 600; opacity: .8; }
+  .audio-ph { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-top: 12px; border-radius: 12px;
+              border: 1px dashed var(--line2); background: rgba(255,255,255,.03); color: var(--muted); font-size: 13px; }
+  .audio-ph .ic { width: 22px; height: 22px; flex: none; opacity: .7; }
+  .audio-ph b { color: #c4d0da; }
+  .gsub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .call-hang { margin-top: 14px; }
+
+  /* ---------- incoming-call overlay ---------- */
+  .callov { position: absolute; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+            background: rgba(3,7,12,.78); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+            padding: 22px; animation: afade .18s ease; }
+  .inc-card { width: 100%; max-width: 300px; text-align: center; color: #fff; }
+  .inc-ring { width: 76px; height: 76px; margin: 0 auto 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+              background: rgba(55,192,106,.16); color: var(--green); animation: incpulse 1.2s ease-in-out infinite; }
+  .inc-ring .ic { width: 36px; height: 36px; }
+  .inc-lbl { font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); }
+  .inc-peer { font-size: 30px; font-weight: 800; margin-top: 4px; }
+  .inc-sub { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .inc-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 30px; }
+  .inc-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 8px; border-radius: 16px;
+             border: none; cursor: pointer; font-size: 13px; font-weight: 700; color: #fff; }
+  .inc-btn .ic { width: 26px; height: 26px; }
+  .inc-btn.answer { background: linear-gradient(180deg, #2bb768, #1f9a55); }
+  .inc-btn.reject { background: linear-gradient(180deg, #ef5a5f, #cf3f44); }
+  .inc-btn:active { transform: scale(.97); }
+  @keyframes incpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(55,192,106,.4); } 50% { box-shadow: 0 0 0 12px rgba(55,192,106,0); } }
+</style>
+</head>
+<body>
+<div class="device">
+  <div class="statusbar">
+    <span class="ant" id="ant" title="Trunking mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8.5 10.4a5 5 0 0 1 0-7.2"/>
+        <path d="M15.5 3.2a5 5 0 0 1 0 7.2"/>
+        <circle cx="12" cy="6.8" r="1.5" fill="currentColor" stroke="none"/>
+        <path d="M12 8.3 8.6 20.6"/>
+        <path d="M12 8.3 15.4 20.6"/>
+        <path d="M10.4 14.4h3.2"/>
+      </svg>
+    </span>
+    <div class="sig" id="sig"><i></i><i></i><i></i><i></i><i></i></div>
+    <span class="sb-net" id="net">—</span>
+    <span class="sb-scan" id="sb-scan"></span>
+    <span class="sb-sp"></span>
+    <span class="lnk" id="lnk-c">C</span>
+    <span class="lnk" id="lnk-t">T</span>
+    <span class="clock" id="clock">--:--</span>
+    <span class="batt"><i></i></span>
+  </div>
+
+  <div class="header" id="header">
+    <div class="htitle" id="title"></div>
+  </div>
+
+  <div class="stage">
+    <div class="callwave" id="callwave" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="scroll" id="view"></div>
+  </div>
+
+  <div class="softkeys" id="softkeys"></div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+const S = {
+  ws: null, control: false, telemetry: false, version: null, state: null,
+  configToml: "", codeplug: null, selectedGssi: null, selFolder: null, cycleGssi: null,
+  events: [], unread: 0, editBuf: "", regType: "RegistrationToIndicatedCell", _detail: 0,
+  calls: {}, dialing: null, dialBuf: "", dialGroup: false, dialDuplex: false, pttHeld: null, grpCall: null,
+  groupCids: {},
+};
+
+// The radio's identity is owned by the MS — derived from live MsRuntimeState, never configured.
+function identity() {
+  const s = S.state;
+  if (s && s.own_issi != null && s.home_mcc != null && s.home_mnc != null) {
+    S._id = { issi: s.own_issi, mcc: s.home_mcc, mnc: s.home_mnc };
+    return S._id;
+  }
+  // Fall back to the last-known identity so the ISSI stays visible when the radio drops.
+  return S._id || null;
+}
+
+// ---------- codeplug (talkgroup tree, programmed by the MS config) ----------
+function attachedGroups() { const s = S.state; return (s && s.attached_groups) || []; }
+function tgByGssi(g) {
+  const cp = S.codeplug; if (!cp || !cp.talkgroups) return null;
+  return cp.talkgroups.find(t => t.gssi === g) || null;
+}
+function tgName(g) { const t = tgByGssi(g); return t ? t.name : ("TG " + g); }
+// TNMM ClassOfUsage(N) carries on-air value N-1; the codeplug stores the on-air 0..7.
+function couStr(onair) { let n = (onair == null ? 0 : onair | 0); if (n < 0) n = 0; if (n > 7) n = 7; return "ClassOfUsage" + (n + 1); }
+// The "selected" (TX) talkgroup: last one the operator switched to, if still
+// attached; otherwise the lowest attached GSSI. attached_groups is sorted, so
+// [0] is a stable fallback but not inherently the selected one.
+function selectedGssi() {
+  const g = attachedGroups();
+  if (S.selectedGssi != null && g.indexOf(S.selectedGssi) >= 0) return S.selectedGssi;
+  return g.length ? g[0] : null;
+}
+function reconcileSelected() {
+  const g = attachedGroups();
+  if (S.selectedGssi != null && g.indexOf(S.selectedGssi) < 0) S.selectedGssi = null;
+  if (S.selectedGssi == null && g.length) S.selectedGssi = g[0];
+}
+
+
+const IC = {
+  back: '<polyline points="15 18 9 12 15 6"/>',
+  home: '<path d="M3 10.6 12 3l9 7.6"/><path d="M5.5 9.6V21h13V9.6"/>',
+  chev: '<polyline points="9 6 15 12 9 18"/>',
+  login: '<path d="M14 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 8 14 12 10 16"/><line x1="14" y1="12" x2="3" y2="12"/>',
+  logout: '<path d="M10 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4"/><polyline points="16 8 20 12 16 16"/><line x1="20" y1="12" x2="9" y2="12"/>',
+  activity: '<polyline points="3 12 8 12 11 5 14 19 17 12 21 12"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 7 12 13l8.5-6"/>',
+  users: '<circle cx="9" cy="8" r="3.2"/><path d="M3.4 19c0-3.1 2.5-5.3 5.6-5.3s5.6 2.2 5.6 5.3"/><path d="M16.3 5.3a3.2 3.2 0 0 1 0 5.9"/><path d="M17.6 13.9c2 .6 3.3 2.5 3.3 5.1"/>',
+  gear: '<circle cx="12" cy="12" r="3.3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.1 5.1l2.1 2.1M16.8 16.8l2.1 2.1M18.9 5.1 16.8 7.2M7.2 16.8 5.1 18.9"/>',
+  info: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16.5"/><circle cx="12" cy="7.6" r="1" fill="currentColor" stroke="none"/>',
+  refresh: '<path d="M20.5 12a8.5 8.5 0 1 1-2.5-6"/><polyline points="20.5 3.5 20.5 10 14 10"/>',
+  check: '<polyline points="4 12 10 18 20 6"/>',
+  x: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>',
+  plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  minus: '<line x1="5" y1="12" x2="19" y2="12"/>',
+  dot: '<circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><line x1="14" y1="6" x2="18" y2="10"/>',
+  menu: '<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/>',
+  scan: '<circle cx="12" cy="12" r="2"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4"/><path d="M17.7 6.3a8 8 0 0 1 0 11.4"/>',
+  folder: '<path d="M3 7.5a2 2 0 0 1 2-2h3.6l2 2H19a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  logs: '<line x1="8" y1="7" x2="20" y2="7"/><line x1="8" y1="12" x2="20" y2="12"/><line x1="8" y1="17" x2="20" y2="17"/><circle cx="4" cy="7" r="1.1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="4" cy="17" r="1.1" fill="currentColor" stroke="none"/>',
+  alert: '<path d="M12 3.5 22 20H2z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.4" r="1" fill="currentColor" stroke="none"/>',
+  phone: '<path d="M5 3.5h3.2l1.6 4-2 1.4a11 11 0 0 0 5.3 5.3l1.4-2 4 1.6V19a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4 6.7 2 2 0 0 1 5 3.5z"/>',
+  phoneOff: '<path d="M5 3.5h3.2l1.6 4-2 1.4a11 11 0 0 0 5.3 5.3l1.4-2 4 1.6V19a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4 6.7 2 2 0 0 1 5 3.5z"/><line x1="3" y1="3" x2="21" y2="21"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="8.5" y1="21" x2="15.5" y2="21"/>',
+  backspace: '<path d="M9 5.5h11a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H9L2.5 12z"/><line x1="12" y1="9.5" x2="17" y2="14.5"/><line x1="17" y1="9.5" x2="12" y2="14.5"/>',
+};
+function ic(name, cls) {
+  return `<svg class="ic ${cls || ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${IC[name] || ''}</svg>`;
+}
+const RGB = { green: "55,192,106", red: "240,85,90", blue: "75,155,230", teal: "31,176,189",
+              indigo: "123,134,232", gold: "214,166,64", accent: "51,167,221", amber: "231,167,43" };
+
+// ---------- navigation ----------
+let stack = ["home"]; let alertTimer = null;
+const cur = () => stack[stack.length - 1];
+function push(v) { stack.push(v); render(); }
+function back() { if (stack.length > 1) stack.pop(); render(); }
+function goHome() { stack = ["home"]; render(); }
+function openMessages() { S.unread = 0; if (cur() !== "messages") push("messages"); else render(); }
+
+// ---------- websocket ----------
+function connect() {
+  S.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  S.ws.onopen = () => render();
+  S.ws.onclose = () => { S.control = S.telemetry = false; render(); setTimeout(connect, 1000); };
+  S.ws.onmessage = (ev) => handle(JSON.parse(ev.data));
+}
+// Actions that merely poll/read server-cached data; when the control link is
+// down these silently no-op (no nag alert). Everything else is a user action
+// that MUST reach the radio, so it gets a visible "radio offline" notice.
+const RADIO_BG_ACTIONS = new Set(["get_config", "get_state", "get_interface_version", "status"]);
+function radioOnline() { return !!S.control; }
+function radioOfflineAlert() {
+  const now = Date.now();
+  if (radioOfflineAlert._t && now - radioOfflineAlert._t < 2500) return;
+  radioOfflineAlert._t = now;
+  showAlert("Radio offline", "Control channel is down \u2014 connect the MS before sending commands.", "red");
+}
+// Single chokepoint to the server. EVERY UI action funnels through here and each
+// one ends up on the stack-facing control channel, so if that channel is down we
+// refuse to send anything at all (and tell the user for explicit actions).
+function send(o) {
+  if (!radioOnline()) {
+    if (o && o.action && !RADIO_BG_ACTIONS.has(o.action)) radioOfflineAlert();
+    return false;
+  }
+  if (S.ws && S.ws.readyState === 1) { S.ws.send(JSON.stringify(o)); return true; }
+  return false;
+}
+function variantOf(m) { if (m && typeof m === "object" && Object.keys(m).length === 1) { const k = Object.keys(m)[0]; return [k, m[k]]; } return ["Unknown", m]; }
+
+// Build id of THIS page, stamped by the server when it served the HTML. Compared
+// against the server's current ui_build on every (re)connect: if they differ the
+// server is now serving a newer UI, so we reload instead of running stale JS over
+// a reconnected socket (the classic "I restarted the server but the tab is old").
+const UI_BUILD = "__UI_BUILD__";
+function handle(env) {
+  switch (env.type) {
+    case "snapshot":
+      if (env.ui_build && UI_BUILD && env.ui_build !== UI_BUILD && !window.__reloading) {
+        window.__reloading = true; location.reload(); return;
+      }
+      S.control = env.control; S.telemetry = env.telemetry; S.version = env.interface_version;
+      if (env.state) S.state = env.state; if (env.registration_type) S.regType = env.registration_type;
+      if (env.identity) S._id = env.identity;
+      if (env.last_config_toml) S.configToml = env.last_config_toml;
+      if (env.codeplug) S.codeplug = env.codeplug;
+      S.calls = {}; (env.calls || []).forEach(c => { if (c && c.call_identifier != null) S.calls[c.call_identifier] = c; });
+      S.events = env.events || []; reconcileSelected(); break;
+    case "status": S.control = env.control; S.telemetry = env.telemetry; if (env.interface_version) S.version = env.interface_version; break;
+    case "config": if (env.toml) S.configToml = env.toml; if (env.codeplug) { S.codeplug = env.codeplug; S._cpReq = false; } break;
+    case "response": onResponse(env); break;
+    case "telemetry": onTelemetry(env); break;
+    case "audio": onAudio(env); return;
+    case "timeout": showAlert("No response", "The stack didn't respond in time.", "amber"); break;
+    case "error": showAlert("Error", env.message, "red"); break;
+  }
+  // While a PTT button is held, a full re-render would destroy the pressed node
+  // and strand the pointer (sticky PTT). Update it in place instead. During a live
+  // group call on the home screen, floor/talker events arrive frequently; rebuild
+  // only the panel + button in place (not the whole stage) so updates feel instant
+  // instead of janky.
+  if (pttIsHeld()) refreshHeldPtt();
+  else if (groupCallActive() && cur() === "home" && groupPanelMounted()) refreshGroupPanel();
+  else render();
+}
+// Is the "GROUP IN USE" panel currently mounted in the DOM? (If not, we need a
+// full render to bring it in rather than an in-place refresh.)
+function groupPanelMounted() {
+  const mid = document.querySelector(".idle-mid");
+  return !!(mid && mid.querySelector(".gcp"));
+}
+// Refresh ONLY the group-call panel's status line and the PTT button in place,
+// avoiding a full stage rebuild on every floor event (the "updating is slow" bug).
+function refreshGroupPanel() {
+  const gs = document.querySelector(".gcp-status");
+  if (gs) gs.innerHTML = gcpStatusHtml();
+  syncCallWave();
+  const g = document.getElementById("gptt");
+  if (g) {
+    const [cls, label] = gpttLook();
+    if (g.className !== cls) g.className = cls;
+    const span = g.querySelector("span");
+    if (span && span.textContent !== label) span.textContent = label;
+  }
+}
+function onResponse(env) {
+  const [v, p] = variantOf(env.response);
+  if (v === "TnmmAck" && p && p.accepted === false) showAlert("Command rejected", p.detail || "The stack rejected the request.", "amber");
+  if (v === "TnccAck" && p && p.accepted === false) {
+    showAlert("Call rejected", p.detail || "The stack rejected the call request.", "amber");
+    if (S.dialing) { S.dialing = null; if (cur() === "incall") back(); }
+  }
+  if (v === "Management") {
+    const [iv, inner] = variantOf(p);
+    if (iv === "State" && inner) { S.state = inner.state; reconcileSelected(); }
+    if (iv === "InterfaceVersion" && inner) S.version = inner.version;
+    if (iv === "Config" && inner) { S.configToml = inner.toml || ""; if (cur() === "configedit" && !S.editBuf) S.editBuf = S.configToml; }
+    if (iv === "Ack" && inner && inner.restart_required) showAlert("Restart required", "Configuration staged \u2014 restart the stack to apply.", "amber");
+    if (iv === "Error" && inner) showAlert("Error", inner.message || "Management command failed.", "red");
+  }
+}
+function onTelemetry(env) {
+  S.events.push(env); if (S.events.length > 300) S.events.shift();
+  if (cur() !== "messages") S.unread++;
+  const [name, p] = variantOf(env.event);
+  // Only important, actionable events get an over-the-top dialog. Routine group
+  // attach/detach and registration success are reflected by the UI state itself.
+  if (name === "TnmmRegistrationConfirm" || name === "TnmmRegistrationIndication") {
+    if (!(p && p.registration_status === "Success"))
+      showAlert("Registration failed", (p && p.registration_reject_cause) ? String(p.registration_reject_cause) : "The network rejected registration.", "red");
+  }
+  else if (name === "TnmmServiceIndication") {
+    // Service and registration are separate concerns: a downlink break sets
+    // service_status = OutOfService while registration_state stays Registered.
+    // Update service only; never touch the registration/attach display here.
+    const prev = S.state ? S.state.service_status : null;
+    const now = p ? p.service_status : null;
+    if (S.state && now) {
+      S.state.service_status = now;
+      if (p.disable_status) S.state.disable_status = p.disable_status;
+      if (now === "OutOfService") S.state.rssi_dbfs = null;
+    }
+    if (now && now !== prev) {
+      if (now === "OutOfService") showAlert("No service", "Downlink lost \u2014 the radio has left coverage.", "red");
+    }
+  }
+  else if (name && name.indexOf("Tncc") === 0) {
+    const cid = p && p.call_identifier;
+    // Capture group-ness before applyCallEvent drops the call. Fall back to the
+    // active group-call / dialing context, since a local release may have already
+    // removed the call from S.calls by the time the release event arrives.
+    const known = (cid != null && S.calls[cid]) ? S.calls[cid] : null;
+    const wasGroup = (cid != null && S.groupCids[cid]) ? true
+      : known ? !!known.group
+      : (S.grpCall && (S.grpCall.cid === cid || S.grpCall.cid == null)) ? true
+      : (S.dialing && S.dialing.group) ? true : false;
+    applyCallEvent(name, p);
+    if (name === "TnccReleaseIndication" && !wasGroup) {
+      // Suppress the notification when WE hung up; only surface it when the far
+      // end / infrastructure released the call.
+      const localEnd = S.localEnd && S.localEnd[cid];
+      if (localEnd) { delete S.localEnd[cid]; }
+      else {
+        const cause = p && p.indication && p.indication.disconnect_cause;
+        showAlert("Call ended", prettyCause(cause), "amber");
+      }
+    }
+    // Incoming individual call: for an on/off-hook call the FIRST answer step is
+    // the *ringing* signal (TnccSetupResponse -> U-ALERT), and it must be sent as
+    // soon as the notification is shown — NOT when the user taps Accept. Accept
+    // then sends TnccComplete (U-CONNECT). Direct calls send nothing until Accept.
+    if (name === "TnccSetupIndication" && cid != null) {
+      const c = S.calls[cid];
+      if (c && !c.group && !c.ringed &&
+          c.hook === "HookOnHookOffSignallingOrCallAcceptanceSignalling") {
+        c.ringed = true;
+        send({ action: "call_ring", call_identifier: cid, duplex: !c.simplex });
+      }
+    }
+    if (S.grpCall) {
+      // Group call is a persistent context on the groups/home screen (no in-call
+      // nav). Only bind the cid and react to lifecycle (release) here — floor
+      // state is derived from tx_status and never changes the call state.
+      if (name === "TnccReleaseIndication" || name === "TnccReleaseConfirm") {
+        if (cid == null || cid === S.grpCall.cid) { S.grpCall = null; S.dialing = null; }
+      } else {
+        const c = groupCallEntry();
+        if (c && c.call_identifier != null) {
+          if (S.grpCall.cid == null) S.grpCall.cid = c.call_identifier;
+          S.groupCids[c.call_identifier] = true;
+          // If the operator let go before the floor arrived, cease it now so we
+          // don't hold the floor we never used. One-shot: don't spam the stack a
+          // cease on every frame while it still reports the (now-unwanted) grant.
+          if (!S.grpCall.talking && c.tx_status === "TransmissionGranted" && !S.grpCall.ceaseSent) {
+            S.grpCall.ceaseSent = true;
+            send({ action: "ptt", call_identifier: c.call_identifier, pressed: false });
+          }
+        }
+      }
+    }
+    // Surface an established individual/dialer call on the in-call screen. Group
+    // calls are NOT pushed here: they live in the "GROUP IN USE" home panel (same
+    // UI whether we placed the call or it arrived), so an incoming group call must
+    // not jump to the individual in-call screen.
+    else {
+      const lc = liveCall();
+      // Only surface the full-screen individual in-call view for calls we are
+      // certain are point-to-point: a call we placed (direction "mo" / individual
+      // dialer), or an incoming call that actually RANG first (state "incoming").
+      // A group call never rings and goes straight to "active" — and its group
+      // flag may not be set on the very first frame (some setups omit
+      // communication_type, or a Tx/Proceed lands first) — so gating on "rang"
+      // prevents a group call from flashing the individual in-call screen before
+      // it is recognised as a group.
+      const individualLive = lc && !lc.group &&
+        (lc.direction === "mo" || (lc.rang && lc.answered) || (S.dialing && !S.dialing.group));
+      if (!groupCallActive() && !incomingCall() && individualLive && cur() !== "incall") push("incall");
+    }
+    // Safety net: if we are on the individual in-call screen but the live call is
+    // (now known to be) a group call, bounce back to the group home panel so a
+    // late-arriving group flag can't strand us on the wrong screen.
+    if (cur() === "incall") {
+      const ic = liveCall();
+      if (ic && ic.group) back();
+    }
+  }
+}
+
+// ---------- call control (TNCC / CMCE) ----------
+// Our own individual short subscriber identity, used to tell "us talking" from
+// "another member talking" in a group call.
+function ownIssi() {
+  if (S.state && S.state.own_issi != null) return S.state.own_issi;
+  if (S._id && S._id.issi != null) return S._id.issi;
+  return null;
+}
+// Fold a floor/transmission status (and optional talker SSI) into a call. The
+// REAL radio reports group floor state through TWO channels: re-sent
+// TnccSetupIndication (transmission_grant + calling_party_ssi) AND TnccTx*
+// (transmission_status + transmitting_party_ssi). Both funnel through here.
+// We store the RAW status + talker SSI (the talker may be our own ISSI, since the
+// stack reflects our own transmission back as GrantedToAnotherUser + own SSI). We
+// deliberately do NOT rewrite that to "TransmissionGranted": doing so latches the
+// floor to "us" and, because the stack's floor events lag, leaves the UI stuck
+// showing "You"/ON AIR after the floor has actually moved to another member. Who
+// is talking is decided at render time from `talker_ssi` vs our own ISSI, and our
+// OWN transmit indicator is driven by the physical PTT press (see iAmTalking).
+function applyFloor(c, status, talkerSsi) {
+  if (!status) return;
+  c.tx_status = status;
+  const own = ownIssi();
+  const ownEcho = (talkerSsi != null && own != null && talkerSsi === own);
+  if (status === "TransmissionGrantedToAnotherUser" && !ownEcho) {
+    // A REAL other member holds the floor: we can't key, and we show them.
+    c.talker_ssi = (talkerSsi != null) ? talkerSsi : null;
+    c.can_request_tx = false;
+    c.holds_floor = false;
+  } else {
+    // Floor free / ours / denied / ceased, or the stack's echo of our OWN
+    // transmission (talker == our ISSI) -> nobody else holds it, we may key.
+    c.talker_ssi = null;
+    c.can_request_tx = true;
+    // We hold the floor on an explicit grant OR on the stack's echo of our own
+    // transmission (GrantedToAnotherUser + own SSI). This stays true for the whole
+    // talkspurt so the ON AIR / TX light does not drop when the echo arrives; it
+    // clears on cease/free/denied and when a real other member takes the floor.
+    c.holds_floor = (status === "TransmissionGranted") || ownEcho;
+  }
+}
+// Whether the SwMI currently permits us to key (request the floor). Derived from
+// the floor state (see applyFloor), NOT from the raw transmit_request_permission
+// flag: real captures show that flag stuck at NotAllowed on every frame even while
+// the MS transmits, so gating on it would permanently lock PTT. Defaults to
+// allowed; only a REAL other member holding the floor makes it false.
+function pttAllowed() {
+  const c = activeGroupCall();
+  return !(c && c.can_request_tx === false);
+}
+// Are WE the current talker in the active group call? Driven SOLELY by the
+// physical PTT: this radio keys the transmitter the instant PTT is pressed, so
+// "You"/ON AIR is immediate and precise. We deliberately do NOT infer "us talking"
+// from the stack's floor fields: the stack echoes our own transmission back as
+// GrantedToAnotherUser + our own ISSI and keeps re-asserting it with lag AFTER we
+// release, which would leave "You" stuck on screen until another member's (also
+// laggy) event arrives — the "shows You instead of the caller" bug. When we are
+// not pressing, we are not talking, full stop.
+function iAmTalking() {
+  return !!(S.grpCall && S.grpCall.talking);
+}
+// The other member currently holding the floor (null if it's us or nobody). A
+// talker SSI equal to our own ISSI is the stack's echo of our OWN (just-ended)
+// transmission, not a peer, so it is ignored here.
+function otherTalkerSsi() {
+  if (S.grpCall && S.grpCall.talking) return null;   // we're keying -> not "another user"
+  // Live downlink voice is the most immediate, reliable talker signal: while
+  // MsSpeechFrames are flowing we KNOW someone else is speaking, and the frame
+  // carries their SSI. Prefer it over the laggy TNCC floor fields.
+  const rx = receivingTalker();
+  if (rx != null) return rx;
+  if (receivingActive()) {
+    // Audio is flowing but the talker SSI wasn't given (null early in a call).
+    const c = activeGroupCall();
+    if (c && c.talker_ssi != null) { const own = ownIssi(); if (own == null || c.talker_ssi !== own) return c.talker_ssi; }
+  }
+  const c = activeGroupCall();
+  if (!c || c.tx_status !== "TransmissionGrantedToAnotherUser") return null;
+  const own = ownIssi();
+  if (c.talker_ssi == null || (own != null && c.talker_ssi === own)) return null;
+  return c.talker_ssi;
+}
+
+// ---------- call / talk duration timers ----------
+// Group calls show how long the CURRENT talker has held the floor (resets each
+// time the talker changes); private calls show total connected call length.
+function fmtDur(ms) {
+  if (ms == null || ms < 0) ms = 0;
+  let s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60); s -= m * 60;
+  return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+}
+// The current group talker as a stable key: "you", an SSI number, or null.
+function currentGroupTalkerKey() {
+  if (iAmTalking()) return "you";
+  const o = otherTalkerSsi();
+  return (o != null) ? o : null;
+}
+// Elapsed ms the current group talker has held the floor, or null if nobody is
+// talking. Latches the start time and resets it whenever the talker changes.
+function talkElapsedMs() {
+  const key = currentGroupTalkerKey();
+  if (key == null) { S.talk = null; return null; }
+  if (!S.talk || S.talk.key !== key) S.talk = { key: key, since: Date.now() };
+  return Date.now() - S.talk.since;
+}
+// Total connected length of a (private) call, or null if not yet connected.
+function callActiveMs(c) {
+  if (!c || c.activeSince == null) return null;
+  return Date.now() - c.activeSince;
+}
+function callClockText(c) {
+  const ms = callActiveMs(c);
+  return ms == null ? "" : fmtDur(ms);
+}
+// A talker is actively speaking in the group call (us or a remote member). Used
+// to show the sonar wave only while someone holds the floor, not for the whole
+// call. Requires a live group call so it clears the instant the call ends.
+function groupTalkerActive() {
+  return groupCallActive() && currentGroupTalkerKey() != null;
+}
+// Toggle the stage's "talking" class so the .callwave animation is visible only
+// while a talker is active. Safe to call from in-place refreshes (no re-render).
+function syncCallWave() {
+  const stage = document.querySelector(".stage");
+  if (stage) stage.classList.toggle("talking", groupTalkerActive());
+}
+
+// ---------- downlink voice (U-plane audio) ----------
+// One shared Web Audio graph. Decoded PCM arrives as {type:"audio"} envelopes
+// (see hub.handle_speech_frame): 480 int16 samples @ 8 kHz per MsSpeechFrame,
+// base64-encoded. We schedule them back-to-back with a tiny lead so playback is
+// gapless, and light a "receiving" indicator while frames flow.
+const AUDIO = { ctx: null, nextTime: 0, gain: null, _micModule: false };
+function ensureAudioCtx() {
+  if (!AUDIO.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    // "interactive" asks the platform for the smallest safe output latency.
+    try { AUDIO.ctx = new AC({ latencyHint: "interactive" }); }
+    catch (e) { AUDIO.ctx = new AC(); }
+    AUDIO.gain = AUDIO.ctx.createGain();
+    AUDIO.gain.gain.value = 1.0;
+    AUDIO.gain.connect(AUDIO.ctx.destination);
+  }
+  if (AUDIO.ctx.state === "suspended") AUDIO.ctx.resume().catch(() => {});
+  return AUDIO.ctx;
+}
+// Browsers block audio until a user gesture; resume the context on first touch.
+function primeAudioOnGesture() {
+  const resume = () => { if (AUDIO.ctx && AUDIO.ctx.state === "suspended") AUDIO.ctx.resume().catch(() => {}); };
+  window.addEventListener("pointerdown", resume, { capture: true });
+  window.addEventListener("keydown", resume, { capture: true });
+}
+function b64ToInt16(b64) {
+  const bin = atob(b64);
+  const n = bin.length;
+  const bytes = new Uint8Array(n);
+  for (let i = 0; i < n; i++) bytes[i] = bin.charCodeAt(i);
+  return new Int16Array(bytes.buffer, 0, n >> 1);
+}
+function playPcm(int16, rate) {
+  const ctx = ensureAudioCtx();
+  if (!ctx) return;
+  const n = int16.length;
+  if (!n) return;
+  const buf = ctx.createBuffer(1, n, rate || 8000);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) ch[i] = int16[i] / 32768;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(AUDIO.gain);
+  const now = ctx.currentTime;
+  // Keep a small jitter buffer so network/frame jitter doesn't cause underruns
+  // (the "flaky voice" symptom), while still staying low-latency. Start a talkspurt
+  // ~45 ms ahead (under one 60 ms frame) so the first source has room to land, and
+  // only resync when the schedule drifts more than ~2.5 frames ahead — that's a
+  // real backlog worth collapsing, whereas a frame or two of lead is healthy
+  // cushion, not buffering.
+  const MIN_LEAD = 0.045;   // ~45 ms — cushion so jittery frames don't underrun
+  const MAX_LEAD = 0.15;    // ~2.5 frames; beyond this we're buffering, so resync
+  if (AUDIO.nextTime < now + MIN_LEAD || AUDIO.nextTime > now + MAX_LEAD) {
+    AUDIO.nextTime = now + MIN_LEAD;
+  }
+  src.start(AUDIO.nextTime);
+  AUDIO.nextTime += buf.duration;
+}
+// Immediately silence and flush any audio already scheduled — used when a call
+// ends or the operator switches talkgroup, so the previous group's voice can
+// never bleed through. Swapping the gain node detaches every in-flight buffer
+// source from the output; the schedule cursor is reset for the next talkspurt.
+function flushAudio() {
+  if (AUDIO.ctx && AUDIO.gain) {
+    try { AUDIO.gain.disconnect(); } catch (e) {}
+    try {
+      AUDIO.gain = AUDIO.ctx.createGain();
+      AUDIO.gain.gain.value = 1.0;
+      AUDIO.gain.connect(AUDIO.ctx.destination);
+    } catch (e) {}
+  }
+  AUDIO.nextTime = 0;
+}
+function receivingActive() {
+  return !!(S.rx && S.rx.active && S.rx.cid != null);
+}
+function receivingTalker() {
+  if (!receivingActive()) return null;
+  const t = S.rx.talker;
+  if (t == null) return null;
+  const own = ownIssi();
+  if (own != null && t === own) return null;   // our own downlink echo, not a peer
+  return t;
+}
+
+// ---------- uplink voice (U-plane mic capture, phase V2) ----------
+// Mirror of the downlink path. While the operator holds the floor we capture the
+// mic (resampled to 8 kHz mono), slice it into exactly 480-sample / 60 ms frames
+// (two 30 ms ACELP sub-frames) at the capture clock, and stream each as
+// {action:"uplink_audio", call_identifier, pcm:<base64 int16 LE>}. The hub
+// ACELP-encodes and forwards it as MsUplinkSpeech — but ONLY while it agrees we
+// hold the floor, so a racing frame can never leak on air. No jitter buffer: we
+// emit frames exactly as the mic fills them, and simply send nothing on underrun.
+const MIC = { ctx: null, stream: null, src: null, node: null, cid: null,
+              buf: new Float32Array(0) };
+const MIC_FRAME = 480;   // samples per 60 ms @ 8 kHz (== two ACELP sub-frames)
+
+function int16ToB64(int16) {
+  const bytes = new Uint8Array(int16.buffer, int16.byteOffset, int16.byteLength);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function micDownmix(input, outRate, inRate) {
+  // input: Float32Array @ inRate. Return Float32Array @ ~8 kHz via cheap linear
+  // decimation. Modern Chrome/Edge already hand us 8 kHz when we ask the
+  // AudioContext for it, so this is usually an identity copy.
+  if (!inRate || inRate === outRate) return input.slice();
+  const ratio = inRate / outRate;
+  const outLen = Math.floor(input.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * ratio;
+    const i0 = Math.floor(pos), frac = pos - i0;
+    const a = input[i0] || 0, b = input[i0 + 1] != null ? input[i0 + 1] : a;
+    out[i] = a + (b - a) * frac;
+  }
+  return out;
+}
+function micFeed(f32) {
+  // Append newly captured (8 kHz) samples and drain whole 480-sample frames.
+  const merged = new Float32Array(MIC.buf.length + f32.length);
+  merged.set(MIC.buf, 0); merged.set(f32, MIC.buf.length);
+  let off = 0;
+  while (merged.length - off >= MIC_FRAME) {
+    const frame = new Int16Array(MIC_FRAME);
+    for (let i = 0; i < MIC_FRAME; i++) {
+      let s = merged[off + i]; if (s > 1) s = 1; else if (s < -1) s = -1;
+      frame[i] = s < 0 ? s * 32768 : s * 32767;
+    }
+    off += MIC_FRAME;
+    if (MIC.cid != null) {
+      // Fire only while this call is still the one we're keying. The hub is the
+      // authoritative floor gate; here we just avoid sending for the wrong call.
+      send({ action: "uplink_audio", call_identifier: MIC.cid, pcm: int16ToB64(frame) });
+    }
+  }
+  MIC.buf = merged.slice(off);
+}
+// AudioWorklet processor source (loaded as a Blob module). It runs on the AUDIO
+// RENDER THREAD, so mic capture no longer competes with the main thread or janks
+// the shared playback graph — that main-thread/ScriptProcessor contention was
+// what made DUPLEX downlink choppy. It buffers ~1024 samples and posts them to
+// the main thread, which resamples to 8 kHz and frames them for the encoder.
+const MIC_WORKLET_CODE = `
+class MicCapture extends AudioWorkletProcessor {
+  constructor() { super(); this._acc = new Float32Array(4096); this._len = 0; this._target = 1024; }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (ch && ch.length) {
+      if (this._len + ch.length > this._acc.length) { this.port.postMessage(this._acc.slice(0, this._len)); this._len = 0; }
+      this._acc.set(ch, this._len); this._len += ch.length;
+      if (this._len >= this._target) { this.port.postMessage(this._acc.slice(0, this._len)); this._len = 0; }
+    }
+    return true;
+  }
+}
+registerProcessor('mic-capture', MicCapture);
+`;
+async function micStart(cid) {
+  if (cid == null) return;
+  MIC.cid = cid;                       // (re)target; a live graph just retargets
+  if (MIC.node || MIC._starting) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+  MIC._starting = true;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      // IMPORTANT: leave echoCancellation / noiseSuppression / autoGainControl OFF.
+      // Any of them puts Chrome into its "communications" audio pipeline, which
+      // ducks and resamples the OUTPUT device — that made DUPLEX downlink playback
+      // choppy while the mic was live. We run raw capture and let ACELP carry it.
+      // (Trade-off: no browser echo cancel, so use a headset to avoid feedback.)
+      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      video: false,
+    });
+    MIC._starting = false;
+    if (MIC.cid == null) { stream.getTracks().forEach(t => t.stop()); return; }
+    MIC.stream = stream;
+    // Reuse the SHARED playback AudioContext (one device clock, no contention).
+    const ctx = ensureAudioCtx() || (function () { try { return new AC(); } catch (e) { return null; } })();
+    if (!ctx) { stream.getTracks().forEach(t => t.stop()); return; }
+    MIC.ctx = ctx;
+    MIC.buf = new Float32Array(0);
+    MIC.src = ctx.createMediaStreamSource(stream);
+
+    // Preferred path: AudioWorklet (off-main-thread capture, no ScriptProcessor
+    // jank on the playback graph). Fall back to ScriptProcessor if unavailable.
+    let usedWorklet = false;
+    if (ctx.audioWorklet && !MIC._workletFailed) {
+      try {
+        if (!AUDIO._micModule) {
+          const url = URL.createObjectURL(new Blob([MIC_WORKLET_CODE], { type: "application/javascript" }));
+          await ctx.audioWorklet.addModule(url);
+          URL.revokeObjectURL(url);
+          AUDIO._micModule = true;
+        }
+        if (MIC.cid == null) { stream.getTracks().forEach(t => t.stop()); return; }
+        const node = new AudioWorkletNode(ctx, "mic-capture", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+        node.port.onmessage = (ev) => {
+          if (MIC.cid == null) return;   // released mid-buffer; drop it
+          micFeed(micDownmix(ev.data, 8000, ctx.sampleRate));
+        };
+        MIC.src.connect(node);
+        // Route the (silent) output through a muted gain to the destination so the
+        // node is always in the active graph and process() is reliably scheduled.
+        const sink = ctx.createGain(); sink.gain.value = 0;
+        node.connect(sink); sink.connect(ctx.destination);
+        MIC.node = node; MIC._sink = sink;
+        usedWorklet = true;
+      } catch (e) { MIC._workletFailed = true; /* fall through to ScriptProcessor */ }
+    }
+    if (!usedWorklet) {
+      const node = ctx.createScriptProcessor(1024, 1, 1);
+      node.onaudioprocess = (ev) => {
+        if (MIC.cid == null) return;
+        micFeed(micDownmix(ev.inputBuffer.getChannelData(0), 8000, ctx.sampleRate));
+      };
+      MIC.src.connect(node);
+      // ScriptProcessor only fires while connected to the graph; route through a
+      // muted gain so we don't echo the mic to the speaker.
+      const sink = ctx.createGain(); sink.gain.value = 0;
+      node.connect(sink); sink.connect(ctx.destination);
+      MIC.node = node; MIC._sink = sink;
+    }
+  } catch (e) { MIC._starting = false; /* no mic / denied — stay silent */ }
+}
+function micStop() {
+  MIC.cid = null;
+  MIC.buf = new Float32Array(0);
+  try { if (MIC.node && MIC.node.port) MIC.node.port.onmessage = null; } catch (e) {}
+  try { if (MIC.node) MIC.node.disconnect(); } catch (e) {}
+  try { if (MIC._sink) MIC._sink.disconnect(); } catch (e) {}
+  try { if (MIC.src) MIC.src.disconnect(); } catch (e) {}
+  try { if (MIC.stream) MIC.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  // MIC.ctx is the SHARED playback context now — never close it here or downlink
+  // audio dies. Just drop our references and tear down the capture nodes above.
+  MIC.node = MIC._sink = MIC.src = MIC.stream = MIC.ctx = null;
+}
+// Keep the mic pointed at the live group call while its PTT is held. The group
+// call id often isn't known at press time (we're still setting the call up), so
+// we start capturing immediately and retarget MIC.cid as soon as the id lands.
+// The hub still floor-gates every frame, so retargeting early can't leak audio.
+function syncGroupMic() {
+  const gc = S.grpCall;
+  if (gc && gc.talking) {
+    let cid = gc.cid;
+    if (cid == null) { const c = (typeof groupCallEntry === "function") ? groupCallEntry() : null; if (c) cid = c.call_identifier; }
+    micStart(cid != null ? cid : null);
+    if (cid != null) MIC.cid = cid;
+  } else if (S.pttHeld == null && MIC.node) {
+    // No individual PTT and no group talk -> ensure the mic is released.
+    micStop();
+  }
+}
+
+// While WE are transmitting, the SwMI echoes our own voice back as downlink
+// speech frames. Never play that back. This applies to a group call we are
+// keying (half-duplex floor) and to an individual SIMPLEX call while PTT is held.
+// Individual DUPLEX calls are full-duplex, so we keep playing the far end even
+// while we talk.
+function txBlocksPlayback(cid) {
+  if (S.grpCall && S.grpCall.talking) return true;
+  if (S.pttHeld != null) {
+    const c = (cid != null) ? S.calls[cid] : null;
+    if (c && c.simplex !== false) return true;
+  }
+  return false;
+}
+function onAudio(env) {
+  const cid = env.call_identifier;
+  const known = (cid != null && S.calls[cid]) ? S.calls[cid] : null;
+  // Stale frame for a call we no longer track (it ended, or we switched
+  // talkgroup): drop it and flush anything still scheduled, once.
+  if (!known) {
+    if (S.rx) { flushAudio(); S.rx = null; refreshRxUi(); }
+    return;
+  }
+  // The audio's call changed under us (e.g. talkgroup switch to a new group
+  // call): flush the previous group's backlog before playing the new one.
+  if (S.rx && S.rx.cid != null && S.rx.cid !== cid) flushAudio();
+  S.rx = { cid: cid, talker: env.talker_ssi != null ? env.talker_ssi : (known ? known.talker_ssi : null),
+           active: true, ts: Date.now() };
+  if (known && env.talker_ssi != null) known.talker_ssi = env.talker_ssi;
+  if (env.pcm && !txBlocksPlayback(cid)) {
+    try { playPcm(b64ToInt16(env.pcm), env.sample_rate || 8000); }
+    catch (e) { /* codec/output hiccup — keep the UI alive */ }
+  }
+  // A talkspurt ends when frames stop (end of over) — clear shortly after the
+  // last frame if none arrive (also cleared explicitly on TransmissionCeased).
+  if (S._rxTimer) clearTimeout(S._rxTimer);
+  S._rxTimer = setTimeout(clearReceiving, 300);
+  refreshRxUi();
+}
+function clearReceiving() {
+  if (S.rx) S.rx.active = false;
+  refreshRxUi();
+}
+// Lightweight, in-place indicator refresh (no full re-render at frame cadence).
+function refreshRxUi() {
+  if (groupCallActive() && cur() === "home" && groupPanelMounted()) refreshGroupPanel();
+  else if (cur() === "incall") render();
+}
+// Once-a-second tick that advances the on-screen call/talk timers WITHOUT a full
+// re-render, so it is safe even while a PTT button is physically held.
+function tickCallClocks() {
+  if (groupCallActive() && cur() === "home" && groupPanelMounted()) {
+    refreshGroupPanel();   // re-renders .gcp-status (incl. the talk-length line)
+    return;
+  }
+  if (cur() === "incall") {
+    const el = document.querySelector(".call-clock");
+    if (el) el.textContent = callClockText(liveCall());
+  }
+}
+// Fold a TNCC telemetry event into the per-call state map (mirrors the hub).
+function applyCallEvent(name, p) {
+  if (!p) return;
+  const cid = p.call_identifier; if (cid == null) return;
+  let body = {};
+  ["indication", "confirm", "request", "response"].some(k => {
+    if (p[k] && typeof p[k] === "object") { body = p[k]; return true; } return false;
+  });
+  if (name === "TnccReleaseIndication" || name === "TnccReleaseConfirm") {
+    delete S.calls[cid];
+    if (S.dialing && S.dialing.call_identifier === cid) S.dialing = null;
+    if (S.rx && S.rx.cid === cid) { flushAudio(); S.rx = null; }
+    if (cur() === "incall") back();
+    return;
+  }
+  let c = S.calls[cid];
+  if (!c) {
+    c = { call_identifier: cid, direction: null, state: "setup", peer_ssi: null,
+          group: false, simplex: true, talker_ssi: null, tx_status: null, can_request_tx: true };
+    S.calls[cid] = c;
+  }
+  if (name === "TnccSetupIndication") {
+    const bsi = body.basic_service_information || {};
+    const isGroup = !!bsi.communication_type && bsi.communication_type !== "PointToPoint";
+    c.group = c.group || isGroup;
+    if (c.group) S.groupCids[cid] = true;
+    // The real radio RE-SENDS TnccSetupIndication during a live group call purely
+    // to report the current floor/talker. For a group the group identity is the
+    // CALLED party (GSSI); the CALLING party is whoever currently holds the floor
+    // (NOT the group). For an individual call the calling party is the caller.
+    if (c.group) {
+      if (body.called_party_ssi != null) c.peer_ssi = body.called_party_ssi;
+    } else {
+      c.direction = "mt";
+      if (body.calling_party_ssi != null) c.peer_ssi = body.calling_party_ssi;
+    }
+    c.simplex = body.simplex_duplex_selection !== "DuplexOperation";
+    c.hook = body.hook_method_selection || null;
+    // The radio RE-SENDS this indication throughout a live group call purely as
+    // floor housekeeping: calling_party_ssi is echoed as our OWN ISSI and
+    // transmission_grant just alternates GrantedToAnotherUser/NotGranted. Only
+    // treat it as a talker/floor signal when the calling party is a REAL other
+    // member; otherwise leave the floor to the authoritative TnccTxIndication.
+    const caller = body.calling_party_ssi;
+    const myIssi = ownIssi();
+    if (caller != null && !(myIssi != null && caller === myIssi)) {
+      applyFloor(c, body.transmission_grant, caller);
+    }
+    c.state = c.group ? "active" : "incoming";
+  } else if (name === "TnccProceedIndication") {
+    if (!c.direction) c.direction = "mo"; c.state = "proceeding"; bindDialing(c);
+  } else if (name === "TnccAlertIndication") {
+    if (!c.direction) c.direction = "mo"; c.state = "alerting";
+    c.queued = body.call_queued === "CallIsQueued"; bindDialing(c);
+  } else if (name === "TnccSetupConfirm" || name === "TnccCompleteConfirm") {
+    if (!c.direction) c.direction = "mo"; c.state = "active";
+    const bsi = body.basic_service_information || {};
+    if (bsi.communication_type && bsi.communication_type !== "PointToPoint") {
+      c.group = true; S.groupCids[cid] = true;
+    }
+    applyFloor(c, body.transmission_grant || body.transmission_status, null);
+    bindDialing(c);
+  } else if (name === "TnccTxIndication" || name === "TnccTxConfirm") {
+    // TnccTxIndication is the AUTHORITATIVE floor signal (transmission_status +
+    // transmitting_party_ssi), unlike the re-sent SetupIndication echo above.
+    const st = body.transmission_status || body.transmission_grant;
+    const who = ("transmitting_party_ssi" in body) ? body.transmitting_party_ssi : null;
+    applyFloor(c, st, who);
+    if (c.state === "setup" || c.state == null) c.state = "active";
+  } else if (name === "TnccNotifyIndication") {
+    c.notify = body.call_status;
+  }
+  // Stamp the connect time once, so private calls can show total call length.
+  if (c.state === "active" && c.activeSince == null) c.activeSince = Date.now();
+  // Remember that this call actually rang (individual MT). Group calls never
+  // enter "incoming", so this flag is what lets us tell a real point-to-point
+  // incoming call (which belongs on the in-call screen) apart from a group call.
+  if (c.state === "incoming") c.rang = true;
+}
+// Absorb the pre-telemetry outgoing placeholder into the real call once its id is known.
+function bindDialing(c) {
+  if (!S.dialing) return;
+  if (c.peer_ssi == null) c.peer_ssi = S.dialing.peer_ssi;
+  if (S.dialing.group) { c.group = true; if (c.call_identifier != null) S.groupCids[c.call_identifier] = true; }
+  if (S.dialing.simplex != null) c.simplex = S.dialing.simplex;
+  S.dialing = null;
+}
+function callList() { return Object.keys(S.calls).map(k => S.calls[k]); }
+// The active DUPLEX individual call, if any. Duplex calls are not floor/PTT
+// controlled (§4.2): once through-connected the uplink is granted for the whole
+// call, so we stream the mic automatically for its whole life.
+function activeDuplexCall() {
+  return callList().find(c => !c.group && c.simplex === false && c.state === "active") || null;
+}
+// Start/stop the mic to match the active duplex call. Called from render() (which
+// runs on every telemetry/state change). micStart() just retargets if the mic is
+// already live, so this is safe to call repeatedly. We only auto-stop what we
+// auto-started (MIC._duplex) and never yank the mic out from under a held PTT.
+function syncDuplexMic() {
+  const c = activeDuplexCall();
+  if (c) {
+    MIC._duplex = true;
+    micStart(c.call_identifier);
+    MIC.cid = c.call_identifier;
+  } else if (MIC._duplex) {
+    MIC._duplex = false;
+    if (S.pttHeld == null && !(S.grpCall && S.grpCall.talking)) micStop();
+  }
+}
+// An incoming individual call keeps showing the ring notification (and stays OFF
+// the in-call screen) until the user explicitly answers it. We track that with
+// `rang` (set the moment it entered "incoming") AND `answered` (set only by
+// answerCall), rather than the radio's live state — the radio may drift an
+// unanswered call to proceeding/alerting/active, which must NOT dismiss the ring.
+function incomingCall() { return callList().find(c => !c.group && c.rang && !c.answered); }
+function liveCall() { return callList().find(c => ["proceeding", "alerting", "connecting", "active"].indexOf(c.state) >= 0) || S.dialing || null; }
+function prettyCause(cause) {
+  if (!cause) return "The call was released.";
+  return String(cause).replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+// ---------- rendering ----------
+function render() {
+  renderStatusbar();
+  const name = cur();
+  const home = name === "home";
+  $("header").style.display = home ? "none" : "";
+  const title = $("title");
+  title.textContent = home ? "" : (TITLES[name] || "");
+  title.className = "htitle";
+  $("view").innerHTML = VIEWS[name] ? VIEWS[name]() : "";
+  $("softkeys").innerHTML = softkeys(name);
+  if (name === "configedit") wireEditor();
+  if (name === "groups") wireGroups();
+  if (name === "dialer") wireDialer();
+  const stage = document.querySelector(".stage");
+  if (stage) stage.classList.toggle("gcall", groupCallActive());
+  syncCallWave();
+  syncCallOverlay();
+  syncDuplexMic();
+  $("view").scrollTop = 0;
+}
+// A group call is active anywhere it exists: the persistent group-PTT context,
+// or a group call that came up via the dialer.
+function groupCallActive() {
+  if (S.grpCall) return true;
+  if (S.dialing && S.dialing.group) return true;
+  return callList().some(c => c.group && ["active", "proceeding", "alerting"].indexOf(c.state) >= 0);
+}
+const TITLES = { menu: "Menu", register: "Register", deregister: "Deregister", status: "Radio Status",
+  messages: "Logs", msgdetail: "Log entry", groups: "Groups", config: "Configuration",
+  configview: "View Config", configedit: "Edit Config", info: "Radio Info", folders: "Folders",
+  dialer: "New Call", incall: "Call" };
+
+function renderStatusbar() {
+  const bars = signalBars();
+  $("sig").querySelectorAll("i").forEach((el, i) => el.classList.toggle("on", i < bars));
+  const reg = S.state && S.state.registration_state === "Registered";
+  const svc = S.state ? S.state.service_status : null;
+  const id = identity();
+  // Antenna reflects trunking mode: InService = WST (full, steady),
+  // InGracefulServiceDegradationMode = LST (blinking, green UI).
+  const lst = svc === "InGracefulServiceDegradationMode";
+  const antState = !S.control ? "off" : lst ? "lst" : svc === "InService" ? "wst" : "";
+  $("ant").className = "ant" + (antState ? " " + antState : "");
+  document.querySelector(".device").classList.toggle("lst", !!(S.control && lst));
+  // Service loss (OutOfService) is shown even while registration_state stays Registered.
+  $("net").textContent = !S.control ? "No service"
+    : svc === "OutOfService" ? "No service"
+    : reg && id ? `${id.mcc} ${id.mnc}`
+    : "Searching\u2026";
+  setLnk("lnk-c", S.control); setLnk("lnk-t", S.telemetry);
+  const sb = $("sb-scan");
+  if (sb) {
+    const scanning = reg && S.state && (S.state.attached_groups || []).length > 1;
+    if (scanning && !sb.innerHTML) sb.innerHTML = ic("scan");
+    sb.classList.toggle("on", !!scanning);
+  }
+  $("clock").textContent = clockStr();
+}
+function setLnk(id, on) { const e = $(id); e.classList.remove("on", "off"); e.classList.add(on ? "on" : "off"); }
+function signalBars() {
+  if (!S.control) return 0;
+  const s = S.state;
+  const st = s ? s.service_status : null;
+  // No coverage → no bars, even if an old RSSI reading is still cached.
+  if (st === "OutOfService") return 0;
+  // Prefer the real serving-cell level when the MS reports it.
+  if (s && s.rssi_dbfs != null) {
+    const r = s.rssi_dbfs;
+    if (r >= -55) return 5; if (r >= -65) return 4; if (r >= -75) return 3;
+    if (r >= -85) return 2; return 1;
+  }
+  return ({ InService: 5, InGracefulServiceDegradationMode: 3, InServiceWaitingForRegistration: 2, MmBusy: 2, MmIdle: 2, OutOfService: 0 })[st] || 1;
+}
+function clockStr() { const d = new Date(); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
+
+const VIEWS = {
+  home: renderHome, menu: renderMenu, register: renderRegister, deregister: renderDeregister, status: renderStatus,
+  messages: renderMessages, msgdetail: renderMsgDetail, groups: renderGroups, config: renderConfig,
+  configview: renderConfigView, configedit: renderConfigEdit, info: renderInfo, folders: renderFolders,
+  dialer: renderDialer, incall: renderIncall,
+};
+
+const MENU = [
+  { t: "Call", k: "dialer", c: "green", i: "phone" },
+  { t: "Register", k: "register", c: "green", i: "login" },
+  { t: "Deregister", k: "deregister", c: "red", i: "logout" },
+  { t: "Radio Status", k: "status", c: "blue", i: "activity" },
+  { t: "Logs", k: "messages", c: "teal", i: "logs" },
+  { t: "Groups", k: "groups", c: "indigo", i: "users" },
+  { t: "Configuration", k: "config", c: "gold", i: "gear" },
+  { t: "Radio Info", k: "info", c: "accent", i: "info" },
+];
+function mrow(m) {
+  const rgb = RGB[m.c];
+  const badge = m.k === "messages" && S.unread ? `<span class="mbadge">${S.unread}</span>` : "";
+  const act = m.k === "messages" ? "openMessages()" : `push('${m.k}')`;
+  return `<div class="mrow" onclick="${act}">
+      <div class="mic" style="background:rgba(${rgb},.15);color:rgb(${rgb})">${ic(m.i)}</div>
+      <div class="mtx">${m.t}</div>${badge}${ic("chev", "chev")}
+    </div>`;
+}
+
+function renderMenu() {
+  return `<div class="menu">${MENU.map(mrow).join("")}</div>`;
+}
+
+function svcLabel(s) {
+  return ({ InService: "In service", OutOfService: "Out of service",
+    InGracefulServiceDegradationMode: "Degraded service",
+    InServiceWaitingForRegistration: "Waiting for registration",
+    MmBusy: "Busy", MmIdle: "Idle" })[s] || s || "Registered";
+}
+
+function renderHome() {
+  const s = S.state;
+  const reg = s ? s.registration_state : null;
+  const registered = reg === "Registered";
+
+  // Build the hero content ONLY (no PTT). The PTT is docked separately below so it
+  // never moves as the hero swaps between the group-call panel, the talkgroup
+  // cycler, and the plain fallback.
+  if (!S.codeplug && !S._cpReq) { S._cpReq = send({ action: "get_config" }); }
+  let mid;
+  if (groupCallActive()) {
+    // A live group call takes over the hero with the "GROUP IN USE" panel — same UI
+    // whether we placed the call or it arrived from the network.
+    mid = renderGroupCallPanel();
+  } else {
+    const treeArr = codeplugTree();
+    if (treeArr.length) {
+      mid = renderHomeCycler(treeArr);
+    } else {
+      // Fallback: not registered, or codeplug not loaded yet — show the plain hero.
+      const groups = attachedGroups();
+      const scanning = registered && groups.length > 1;
+      let tgName_, tgSub, dim = "";
+      if (registered && groups.length) {
+        const sel = selectedGssi();
+        const t = tgByGssi(sel);
+        tgName_ = t ? t.name : sel;
+        tgSub = t ? ("GSSI " + sel) : "Selected talkgroup";
+      } else if (registered) {
+        tgName_ = "No group"; tgSub = "No talkgroup attached"; dim = " dim";
+      } else {
+        tgName_ = "\u2014"; tgSub = S.control ? "Not in service" : "No service"; dim = " dim";
+      }
+      const scanCount = groups.length - 1;
+      const scanChip = registered
+        ? (scanning
+            ? `<div class="idle-scan on">${ic("scan")}<span>SCAN \u00b7 ${scanCount} group${scanCount > 1 ? "s" : ""}</span></div>`
+            : `<div class="idle-scan">${ic("scan")}<span>SCAN OFF</span></div>`)
+        : "";
+      mid = `<div class="idle-tg">
+        <div class="idle-tg-label">TALKGROUP</div>
+        <div class="idle-tg-name${dim}">${tgName_}</div>
+        <div class="idle-tg-sub">${tgSub}</div>
+        ${scanChip}
+      </div>`;
+    }
+  }
+  return `<div class="idle">
+      <div class="idle-mid">${mid}</div>
+      <div class="ptt-dock">${renderGroupPtt()}</div>
+    </div>`;
+}
+
+// Home hero: pick a folder, spin the arrows through its talkgroups, tap to key it up.
+function renderHomeCycler(treeArr) {
+  if (!treeArr.find(f => f.id === S.selFolder)) {
+    const selg = selectedGssi();
+    const owner = selg != null ? treeArr.find(f => f.tgs.some(t => t.gssi === selg)) : null;
+    S.selFolder = (owner || treeArr[0]).id;
+  }
+  const fol = treeArr.find(f => f.id === S.selFolder);
+  if (!fol.tgs.some(t => t.gssi === S.cycleGssi)) {
+    const selg = selectedGssi();
+    S.cycleGssi = (fol.tgs.find(t => t.gssi === selg) || fol.tgs[0]).gssi;
+  }
+  const idx = Math.max(0, fol.tgs.findIndex(t => t.gssi === S.cycleGssi));
+  const t = fol.tgs[idx];
+  const groups = attachedGroups();
+  const attached = groups.indexOf(t.gssi) >= 0;
+  const isTx = attached && t.gssi === selectedGssi();
+  const scanning = groups.length > 1;
+  const scanCount = groups.length - 1;
+  const badge = isTx ? `<div class="cyc-badge tx">ON AIR</div>`
+    : (attached ? `<div class="cyc-badge scan">SCANNING</div>` : `<div class="cyc-badge sel">NOT SELECTED</div>`);
+  const many = fol.tgs.length > 1;
+  const scanChip = scanning
+    ? `<div class="idle-scan on">${ic("scan")}<span>SCAN \u00b7 ${scanCount} group${scanCount > 1 ? "s" : ""}</span></div>`
+    : `<div class="idle-scan">${ic("scan")}<span>SCAN OFF</span></div>`;
+  return `<button class="folder-btn" onclick="push('folders')">${ic("folder", "fb-ic")}<span class="fb-name">${escapeHtml(fol.name)}</span>${ic("chev", "fb-chev")}</button>
+      <div class="hcyc">
+        <button class="hcyc-arrow" ${many ? "" : "disabled"} onclick="cycleTg(-1)" aria-label="Previous talkgroup">${ic("back")}</button>
+        <div class="hcyc-mid">
+          <div class="idle-tg-label">TALKGROUP</div>
+          <div class="hcyc-name">${escapeHtml(t.name)}</div>
+          <div class="hcyc-sub">GSSI ${t.gssi} \u00b7 ${idx + 1}/${fol.tgs.length}</div>
+          ${badge}
+        </div>
+        <button class="hcyc-arrow" ${many ? "" : "disabled"} onclick="cycleTg(1)" aria-label="Next talkgroup">${ic("chev")}</button>
+      </div>
+      <button class="btn primary hcyc-select" ${isTx ? "disabled" : ""} onclick="selectCycled()">${ic("check")} ${isTx ? "On air" : "Select talkgroup"}</button>
+      ${scanChip}`;
+}
+
+function renderRegister() {
+  const id = identity();
+  const idLine = id ? `${id.issi} · ${id.mcc}-${id.mnc}` : "waiting for MS\u2026";
+  const detaching = S.state && S.state.registration_state === "Detaching";
+  const warn = detaching
+    ? `<div class="hint" style="color:#f2c96b">MS is still detaching (<b>Detaching</b>). It will reject a new registration with <b>"deregister in progress"</b> until the network confirms the detach.</div>`
+    : `<div class="hint">A radio can only register its own identity, reported by the MS.</div>`;
+  return `<div class="panel">
+      <div class="kv"><span class="k">Action</span><span class="v">Register to network</span></div>
+      <div class="kv"><span class="k">Type</span><span class="v">${shortType(S.regType)}</span></div>
+      <div class="kv"><span class="k">MS state</span><span class="v">${S.state ? pill(S.state.registration_state, regClass(S.state.registration_state)) : "—"}</span></div>
+      <div class="kv"><span class="k">This radio</span><span class="v" style="color:var(--muted);font-weight:500">${idLine}</span></div>
+    </div>
+    ${warn}
+    <button class="btn primary" ${id ? "" : "disabled"} onclick="doRegister()">${ic("login")} Register</button>
+    <button class="btn ghost" onclick="back()">Cancel</button>`;
+}
+function renderDeregister() {
+  const id = identity();
+  const idLine = id ? `${id.issi} · ${id.mcc}-${id.mnc}` : "waiting for MS\u2026";
+  return `<div class="panel">
+      <div class="kv"><span class="k">Action</span><span class="v">Deregister from network</span></div>
+      <div class="kv"><span class="k">This radio</span><span class="v" style="color:var(--muted);font-weight:500">${idLine}</span></div>
+    </div>
+    <button class="btn danger" ${id ? "" : "disabled"} onclick="doDeregister()">${ic("logout")} Deregister</button>
+    <button class="btn ghost" onclick="back()">Cancel</button>`;
+}
+function doRegister() { if (!identity()) return; send({ action: "register" }); }
+function doDeregister() { if (!identity()) return; send({ action: "deregister" }); }
+function shortType(t) { return t === "RegistrationToIndicatedCell" ? "Indicated cell" : t === "PeriodicRegistration" ? "Periodic" : t; }
+
+function renderStatus() {
+  const s = S.state;
+  if (!s) return `<div class="empty">${ic("activity")}<div>No state yet\u2026</div></div>`;
+  const rows = [
+    ["Registration", pill(s.registration_state, regClass(s.registration_state))],
+    ["Service", pill(s.service_status, svcClass(s.service_status))],
+    ["Own ISSI", s.own_issi], ["Home", s.home_mcc + " / " + s.home_mnc],
+    ["Serving LA", s.serving_la], ["Colour code", s.colour_code],
+    ["Signal", s.rssi_dbfs != null ? s.rssi_dbfs.toFixed(1) + " dBFS" : "—"],
+    ["Groups", (s.attached_groups && s.attached_groups.length) ? s.attached_groups.map(g => tgName(g) + " (" + g + ")").join(", ") : "none"],
+    ["Restart", s.restart_required ? pill("REQUIRED", "p-a") : pill("no", "p-m")],
+  ];
+  return `<div class="panel">` + rows.map(r => `<div class="kv"><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join("") + `</div>`;
+}
+function pill(txt, cls) { return `<span class="pill ${cls}">${txt}</span>`; }
+function regClass(v) { return v === "Registered" ? "p-g" : v === "Idle" ? "p-m" : "p-a"; }
+function svcClass(v) { return v === "InService" ? "p-g" : v === "OutOfService" ? "p-r" : "p-a"; }
+
+function renderMessages() {
+  if (!S.events.length) return `<div class="empty">${ic("mail")}<div>No telemetry yet</div></div>`;
+  const ev = S.events.slice().reverse();
+  return ev.map((e, i) => {
+    const [name, p] = variantOf(e.event); const c = msgColor(name, p); const rgb = RGB[colName(c)];
+    return `<div class="evt ${c}" onclick="pushDetail(${i})">
+        <div class="evt-ic" style="background:rgba(${rgb},.15);color:rgb(${rgb})">${ic(msgIcon(name, p))}</div>
+        <div class="evt-tx">${label(name)}<div class="evt-time">${new Date(e.ts * 1000).toLocaleTimeString()}</div></div>
+        ${ic("chev", "chev")}
+      </div>`;
+  }).join("");
+}
+function pushDetail(i) { S._detail = i; push("msgdetail"); }
+function renderMsgDetail() {
+  const ev = S.events.slice().reverse()[S._detail || 0];
+  if (!ev) return `<div class="empty">${ic("mail")}<div>gone</div></div>`;
+  const [name, p] = variantOf(ev.event);
+  let rows = "";
+  if (p && typeof p === "object") for (const k in p) rows += `<div class="kv"><span class="k">${k}</span><span class="v">${fmt(p[k])}</span></div>`;
+  return `<div class="panel"><div class="kv"><span class="k">Event</span><span class="v">${label(name)}</span></div>
+      <div class="kv"><span class="k">Time</span><span class="v">${new Date(ev.ts * 1000).toLocaleTimeString()}</span></div>${rows}</div>
+      <pre class="code">${escapeHtml(JSON.stringify(ev.event, null, 2))}</pre>`;
+}
+function msgColor(name, p) {
+  if (name.indexOf("Registration") >= 0 && (name.indexOf("Confirm") >= 0 || name.indexOf("Indication") >= 0))
+    return p && p.registration_status === "Success" ? "green" : "red";
+  if (name === "MsRegistration" || name === "MsGroupAttach") return "green";
+  if (name === "MsDeregistration" || name === "MsGroupDetach") return "amber";
+  if (name === "TnmmAttachDetachGroupIdentityConfirm") {
+    const gi = (p && p.group_identities) || [];
+    if (!gi.length) return "red";
+    return gi.some(g => g.group_identity_attach_detach_type_identifier === "Attachment") ? "green" : "amber";
+  }
+  if (name === "TnmmServiceIndication") return p && p.service_status === "InService" ? "green" : "amber";
+  return "blue";
+}
+function colName(c) { return c === "green" ? "green" : c === "red" ? "red" : c === "amber" ? "amber" : "blue"; }
+function msgIcon(name, p) {
+  if (name === "TnmmAttachDetachGroupIdentityConfirm") return "users";
+  if (name.indexOf("Registration") >= 0) return name.indexOf("Ms") === 0 ? "plus" : (p && p.registration_status === "Success" ? "check" : "x");
+  if (name === "MsDeregistration") return "minus"; if (name === "TnmmServiceIndication") return "activity"; return "dot";
+}
+function label(name) { return name.replace(/([A-Z])/g, " $1").trim(); }
+function fmt(v) { if (v === null) return "—"; if (Array.isArray(v)) return "[" + v.join(", ") + "]"; return String(v); }
+
+// Ordered folder tree: [{id, name, tgs:[...sorted talkgroups]}].
+function codeplugTree() {
+  const cp = S.codeplug; const tgs = (cp && cp.talkgroups) || [];
+  if (!tgs.length) return [];
+  const folders = ((cp && cp.folders) || []).slice().sort((a, b) => (a.order - b.order) || a.name.localeCompare(b.name));
+  const byFolder = {};
+  tgs.forEach(t => { const f = t.folder || "__none"; (byFolder[f] = byFolder[f] || []).push(t); });
+  const order = folders.map(f => f.id).filter(id => byFolder[id]);
+  Object.keys(byFolder).forEach(id => { if (order.indexOf(id) < 0) order.push(id); });
+  return order.map(fid => ({
+    id: fid,
+    name: fid === "__none" ? "Other" : ((folders.find(f => f.id === fid) || {}).name || fid),
+    tgs: byFolder[fid].slice().sort((a, b) => (a.order - b.order) || a.name.localeCompare(b.name)),
+  }));
+}
+// Folder (zone) name that contains a given talkgroup GSSI, or null if unknown.
+function folderNameOfGssi(g) {
+  if (g == null) return null;
+  const f = codeplugTree().find(fol => fol.tgs.some(t => t.gssi === g));
+  return f ? f.name : null;
+}
+
+function renderGroups() {
+  const s = S.state;
+  const registered = s && s.registration_state === "Registered";
+
+  // Ask the MS for its codeplug (talkgroup programming) if we don't have it yet.
+  if (!S.codeplug && !S._cpReq) { S._cpReq = send({ action: "get_config" }); }
+
+  const groups = attachedGroups();
+  const sel = selectedGssi();
+  const scanCount = groups.length - 1;
+  const status = groups.length
+    ? (scanCount > 0 ? `Scanning ${scanCount + 1} groups \u00b7 TX ${tgName(sel)}` : `Single group \u2014 scan off`)
+    : "No talkgroups attached";
+
+  const treeArr = codeplugTree();
+  const treeHtml = treeArr.length
+    ? treeArr.map(f => `<div class="gfolder">${escapeHtml(f.name)}</div><div class="glist">${f.tgs.map(tgRow).join("")}</div>`).join("")
+    : `<div class="hint">No talkgroups programmed in the codeplug. Attach one by GSSI below.</div>`;
+
+  // Attached groups that aren't in the codeplug (ad-hoc) get their own list.
+  const known = new Set((S.codeplug && S.codeplug.talkgroups || []).map(t => t.gssi));
+  const adhoc = groups.filter(g => !known.has(g));
+  const adhocList = adhoc.length
+    ? `<div class="gfolder">Ad-hoc</div><div class="glist">${adhoc.map(g => `<div class="grow">
+          <div class="gtag ${g === sel ? "active" : "scan"}">${g === sel ? "TX" : "SCAN"}</div>
+          <div class="gname">${g}</div>
+          <button class="gdet" onclick="detachGroup(${g})" aria-label="Detach ${g}">${ic("minus")}</button>
+        </div>`).join("")}</div>`
+    : "";
+
+  const detachAll = groups.length
+    ? `<button class="btn ghost" onclick="detachAllGroups()">${ic("logout")} Detach all groups</button>`
+    : "";
+
+  const offlineHint = !registered
+    ? `<div class="hint">Radio ${S.control ? "not registered" : "offline"} \u2014 showing programmed talkgroups. Attach/detach takes effect once registered.</div>`
+    : "";
+
+  return `<div class="gstatus">${ic("scan")}<span>${status}</span></div>
+    ${renderGroupPtt()}
+    ${offlineHint}
+    ${renderScanlists()}
+    <div class="hint">Build a scan list here. To pick your TX talkgroup, use the dial on the home screen.</div>
+    <div class="gfolder">All talkgroups</div>
+    ${treeHtml}
+    ${adhocList}
+    <div class="gfolder">Attach by GSSI</div>
+    <div class="gadd">
+      <input id="gssi-in" class="gin" type="number" inputmode="numeric" placeholder="Group GSSI" />
+      <button class="btn primary gattach" onclick="attachGroup()">${ic("plus")} Scan</button>
+    </div>
+    ${detachAll}`;
+}
+
+// Group-call PTT: floor control decoupled from call lifecycle (ETSI TS 100 392-2
+// cl. 14.5.2). PTT only controls who transmits inside the call context. The call
+// ends ONLY on a network release (BS hang timeout) — never on PTT release.
+// The active group call, resolved identically whether WE placed it (S.grpCall is
+// set) or it arrived from the network (S.grpCall is null). This is what makes the
+// "GROUP IN USE" panel look the same for outgoing and incoming calls.
+function activeGroupCall() {
+  if (S.grpCall && S.grpCall.cid != null && S.calls[S.grpCall.cid]) return S.calls[S.grpCall.cid];
+  return callList().find(c => c.group && ["active", "proceeding", "alerting"].indexOf(c.state) >= 0) || null;
+}
+function groupCallEntry() {
+  const gc = S.grpCall;
+  if (gc && gc.cid != null) return S.calls[gc.cid] || null;
+  return activeGroupCall();
+}
+// Floor state derived from the active group call's tx_status (never drives call
+// state). Works with or without S.grpCall so incoming calls report the floor too.
+function grpFloor() {
+  const c = activeGroupCall();
+  if (!c) return (S.grpCall || (S.dialing && S.dialing.group)) ? "setup" : "idle";
+  switch (c.tx_status) {
+    case "TransmissionGranted": return "has";
+    case "TransmissionGrantedToAnotherUser": return "other";
+    case "TransmissionRequestQueued":
+    case "TransmissionWait": return "req";
+    case "TransmissionNotGranted":
+    case "TransmissionRequestFailed": return "denied";
+    case "TransmissionInterrupt": return "interrupt";
+    default: return "free";  // ceased/idle — call still up, nobody talking
+  }
+}
+// Active group-call panel shown on the home screen while a group call is up —
+// identical whether the call was placed by this MS or arrived from the network.
+// Layout: "GROUP IN USE" -> folder (zone) -> group name -> current talker, with a
+// clear distinction between "someone is talking" and "call active, floor free".
+function renderGroupCallPanel() {
+  const entry = activeGroupCall();
+  let gssi = S.grpCall ? S.grpCall.gssi : null;
+  if (gssi == null && entry && entry.peer_ssi != null) gssi = entry.peer_ssi;
+  if (gssi == null) gssi = selectedGssi();
+  const gname = gssi != null ? tgName(gssi) : "Group call";
+  const fname = folderNameOfGssi(gssi);
+  const folderHtml = fname
+    ? `<div class="gcp-folder">${ic("folder")}<span>${escapeHtml(fname)}</span></div>` : "";
+
+  return `<div class="gcp">
+      <div class="gcp-tag">GROUP IN USE</div>
+      ${folderHtml}
+      <div class="gcp-name">${escapeHtml(gname)}</div>
+      <div class="gcp-status">${gcpStatusHtml()}</div>
+    </div>`;
+}
+// The talker/status block — derived straight from the active call's tx_status so
+// it shows the current talker for BOTH incoming and outgoing group calls. Kept
+// separate so it can be refreshed in place while a PTT is physically held.
+function gcpStatusHtml() {
+  if (iAmTalking()) {
+    return `<div class="gcp-badge live">TALKING</div>
+      <div class="gcp-talker-label">CURRENT TALKER</div>
+      <div class="gcp-talker"><span class="dot"></span>You</div>
+      <div class="gcp-talk-time">${fmtDur(talkElapsedMs())}</div>`;
+  }
+  const other = otherTalkerSsi();
+  if (other != null) {
+    return `<div class="gcp-badge live">TALKING</div>
+      <div class="gcp-talker-label">CURRENT TALKER</div>
+      <div class="gcp-talker"><span class="dot"></span>${escapeHtml(String(partyName(other)))}</div>
+      <div class="gcp-talk-time">${fmtDur(talkElapsedMs())}</div>`;
+  }
+  const floor = grpFloor();
+  const sub = floor === "req" ? "Requesting floor\u2026"
+            : floor === "setup" ? "Connecting\u2026"
+            : "Floor free \u2014 push to talk";
+  return `<div class="gcp-badge idle">GROUP CALL ACTIVE</div>
+      <div class="gcp-sub">${sub}</div>`;
+}
+function renderGroupPtt() {
+  const registered = S.state && S.state.registration_state === "Registered";
+  const sel = selectedGssi();
+  if (!registered || sel == null) return "";
+  // A single, fixed-position PTT button. Its look changes with transmit state
+  // but its markup/size never does, so the layout doesn't shift on call start.
+  const [cls, label] = gpttLook();
+  return `<button class="${cls}" id="gptt"
+      onpointerdown="grpPttDown()" onpointerup="grpPttUp()"
+      oncontextmenu="return false">${ic("mic")}<span>${escapeHtml(label)}</span></button>`;
+}
+// The PTT button's own [class, label]. Red ("ON AIR") the instant you physically
+// press — this radio keys the transmitter immediately, well ahead of the SwMI's
+// laggy floor grant, so we must NOT wait for a network "granted" event (that was
+// the "shows Requesting while actually transmitting" bug). Only show "Requesting"
+// if the stack EXPLICITLY queues/waits the floor. Not pressing -> idle, so the
+// button never gets stuck ON AIR after release and never lights up for another
+// member's transmission.
+function gpttLook() {
+  const pressing = !!(S.grpCall && S.grpCall.talking);
+  if (!pressing) {
+    if (!pttAllowed()) return ["ptt gptt locked", "Floor busy"];
+    return ["ptt gptt", "Push to talk"];
+  }
+  const f = grpFloor();
+  if (f === "req") return ["ptt gptt req", "Requesting\u2026"];
+  return ["ptt gptt on", "ON AIR"];
+}
+// True while a PTT button is physically held down.
+function pttIsHeld() { return (S.pttHeld != null) || !!(S.grpCall && S.grpCall.talking); }
+// While a PTT is held we must NOT rebuild the view: a full render() replaces the
+// pressed button node, stranding the pointer so pointerup never fires (the
+// "sticky PTT" bug). Instead update the held button's look in place.
+function refreshHeldPtt() {
+  const stage = document.querySelector(".stage");
+  if (stage) stage.classList.toggle("gcall", groupCallActive());
+  syncGroupMic();
+  syncCallWave();
+  const g = document.getElementById("gptt");
+  if (g && S.grpCall) {
+    const [cls, label] = gpttLook();
+    if (g.className !== cls) g.className = cls;
+    const span = g.querySelector("span");
+    if (span) span.textContent = label;
+  }
+  // On the FIRST press the home still shows the talkgroup cycler (grpPttDown
+  // avoids a full render so the pressed button isn't stranded). The PTT lives in
+  // the fixed .ptt-dock, so we can swap ONLY the hero (.idle-mid) to the "GROUP
+  // IN USE" panel in place — the button is untouched and the gesture survives.
+  if (groupCallActive() && cur() === "home") {
+    const mid = document.querySelector(".idle-mid");
+    if (mid && !mid.querySelector(".gcp")) mid.innerHTML = renderGroupCallPanel();
+  }
+  // Keep the "GROUP IN USE" talker/status block live while a PTT is held (a full
+  // render would strand the pressed button), so "You" appears while transmitting.
+  const gs = document.querySelector(".gcp-status");
+  if (gs) gs.innerHTML = gcpStatusHtml();
+  const p = document.getElementById("ptt");
+  if (p && S.pttHeld != null) {
+    const c = S.calls[S.pttHeld];
+    if (c) {
+      const on = !!c.holds_floor;
+      const req = !c.holds_floor &&
+        (c.tx_status === "TransmissionRequestQueued" || c.tx_status === "TransmissionWait" || c.tx_status == null);
+      const cls = on ? "ptt gptt on" : (req ? "ptt gptt req" : "ptt gptt");
+      if (p.className !== cls) p.className = cls;
+      const span = p.querySelector("span");
+      if (span) span.textContent = on ? "ON AIR" : (req ? "Requesting\u2026" : "Push to talk");
+    }
+  }
+}
+function grpPttDown() {
+  if (!radioOnline()) { radioOfflineAlert(); return; }
+  const registered = S.state && S.state.registration_state === "Registered";
+  if (!registered) { showAlert("Not registered", "Register the radio before transmitting.", "amber"); return; }
+  const sel = selectedGssi();
+  if (sel == null) { showAlert("No talkgroup", "Attach a talkgroup before transmitting.", "amber"); return; }
+
+  // The SwMI won't let us key while another member holds the floor
+  // (transmit_request_permission = NotAllowed, ETSI 14.8.43). Don't demand the
+  // floor we can't get. This never blocks starting the first call (no active call
+  // -> allowed) and never blocks a release.
+  if (pttAllowed() === false) {
+    if (typeof pttDebug === "function") pttDebug("grpPttDown: blocked, floor not permitted");
+    return;
+  }
+
+  // Is a group call already up? It may be live in S.calls even when S.grpCall is
+  // null (network-established, or we cleared our context). In that case the press
+  // must DEMAND the floor (TnccTx RequestToTransmit) — NOT start a second call.
+  const existing = groupCallEntry() ||
+    callList().find(c => c.group && ["active", "proceeding", "alerting"].indexOf(c.state) >= 0) || null;
+
+  if (!S.grpCall && !existing) {
+    // Truly idle -> start the group call; TnccSetup demands the floor (request_tx).
+    S.grpCall = { gssi: sel, cid: null, talking: true, ceaseSent: false };
+    if (typeof pttDebug === "function") pttDebug("grpPttDown: new call, setup");
+    S.dialing = { call_identifier: null, direction: "mo", state: "dialing",
+                  peer_ssi: sel, group: true, simplex: true, talker_ssi: null, tx_status: null };
+    send({ action: "call_setup", ssi: sel, group: true, duplex: false });
+    // NOTE: no full render() here — that would swap out this button mid-press
+    // and break the pointerup gesture (sticky PTT). Update it in place.
+    refreshHeldPtt();
+    return;
+  }
+  // A group call already exists -> adopt it and DEMAND the floor again
+  // (TnccTx RequestToTransmit). ALWAYS re-demand on a fresh press; never gate on
+  // the local floor reading, which can be stale (the stack may not have sent a
+  // clean ceased indication), otherwise subsequent presses silently fail to key.
+  if (!S.grpCall) {
+    S.grpCall = { gssi: sel, cid: existing.call_identifier != null ? existing.call_identifier : null,
+                  talking: true, ceaseSent: false };
+  }
+  S.grpCall.talking = true;
+  S.grpCall.ceaseSent = false;
+  let cid = S.grpCall.cid;
+  if (cid == null && existing && existing.call_identifier != null) cid = S.grpCall.cid = existing.call_identifier;
+  if (cid == null) { const c = groupCallEntry(); if (c) cid = S.grpCall.cid = c.call_identifier; }
+  if (typeof pttDebug === "function") pttDebug("grpPttDown: existing, demand cid=" + cid);
+  if (cid != null) {
+    send({ action: "ptt", call_identifier: cid, pressed: true });
+  }
+  refreshHeldPtt();
+}
+function grpPttUp() {
+  const gc = S.grpCall; if (!gc) return;
+  const was = gc.talking;
+  gc.talking = false;
+  micStop();
+  // Resolve the call id even if we haven't stamped gc.cid yet.
+  let cid = gc.cid;
+  if (cid == null) { const c = groupCallEntry(); if (c) cid = c.call_identifier; }
+  // On PTT release ALWAYS relinquish the floor (U-TX-CEASED) if we were pressing
+  // and a call id is known. Do NOT gate on the current floor reading — a stale or
+  // transient tx_status must never swallow the cease, or the radio keeps keying.
+  if (typeof pttDebug === "function") pttDebug("grpPttUp: was=" + was + " cid=" + cid + " floor=" + grpFloor());
+  if (was && cid != null) {
+    gc.ceaseSent = true;
+    send({ action: "ptt", call_identifier: cid, pressed: false });
+  }
+  render();
+}
+
+function scanlistActive(name) { return activeScanlists().indexOf(name) !== -1; }
+function toggleScanlist(name) {
+  const registered = S.state && S.state.registration_state === "Registered";
+  if (!registered) { showAlert("Not registered", "Register the radio before changing scan lists.", "amber"); return; }
+  const want = !scanlistActive(name);
+  send({ action: "activate_scanlist", name: name, active: want });
+  // Optimistic local update; the GetState poll reconciles the authoritative set.
+  if (S.state) {
+    const set = new Set(activeScanlists());
+    if (want) set.add(name); else set.delete(name);
+    S.state.active_scanlists = Array.from(set);
+  }
+  send({ action: "get_state" });
+}
+function renderScanlists() {
+  const lists = (S.codeplug && S.codeplug.scanlists) || [];
+  if (!lists.length) return "";
+  const sorted = lists.slice().sort((a, b) => (a.order - b.order) || String(a.name).localeCompare(String(b.name)));
+  const rows = sorted.map(sl => {
+    const on = scanlistActive(sl.name);
+    const tgs = (sl.talkgroups || []).map(g => tgName(g)).join(", ");
+    const arg = JSON.stringify(String(sl.name)).replace(/"/g, "&quot;");
+    return `<div class="grow">
+        <div class="gtag ${on ? "active" : "scan"}">${on ? "ON" : "OFF"}</div>
+        <div class="gname">${escapeHtml(String(sl.name))}<div class="gsub">${escapeHtml(tgs)}</div></div>
+        <button class="sltog ${on ? "on" : ""}" role="switch" aria-checked="${on}" aria-label="Toggle scan list ${escapeHtml(String(sl.name))}" onclick="toggleScanlist(${arg})"><span class="knob"></span></button>
+      </div>`;
+  }).join("");
+  return `<div class="gfolder">Scan lists</div><div class="glist">${rows}</div>`;
+}
+
+// Motorola-style zone selector state helpers (folder pick + talkgroup step + select).
+// Zone/folder selection screen (opened from the home Folders button).
+function renderFolders() {
+  const treeArr = codeplugTree();
+  if (!treeArr.length)
+    return `<div class="empty">${ic("folder")}<div>No folders programmed</div></div>`;
+  return `<div class="menu">` + treeArr.map((f, i) => {
+    const on = f.id === S.selFolder;
+    const n = f.tgs.length;
+    return `<div class="zrow ${on ? "on" : ""}" onclick="chooseFolder(${i})">
+        <div class="zic">${ic("folder")}</div>
+        <div class="zbody"><div class="zname">${escapeHtml(f.name)}</div><div class="zsub">${n} talkgroup${n === 1 ? "" : "s"}</div></div>
+        ${on ? `<span class="zcheck">${ic("check")}</span>` : ic("chev", "chev")}
+      </div>`;
+  }).join("") + `</div>`;
+}
+function chooseFolder(i) {
+  const f = codeplugTree()[i]; if (!f) return;
+  S.selFolder = f.id;
+  const selg = selectedGssi();
+  S.cycleGssi = f.tgs.length ? (f.tgs.find(t => t.gssi === selg) || f.tgs[0]).gssi : null;
+  back();
+}
+function cycleTg(d) {
+  const f = codeplugTree().find(x => x.id === S.selFolder); if (!f || !f.tgs.length) return;
+  let i = f.tgs.findIndex(t => t.gssi === S.cycleGssi); if (i < 0) i = 0;
+  i = (i + d + f.tgs.length) % f.tgs.length;
+  S.cycleGssi = f.tgs[i].gssi; render();
+}
+function selectCycled() {
+  const t = tgByGssi(S.cycleGssi); if (!t) return;
+  selectGroup(t.gssi, t.class_of_usage == null ? 0 : t.class_of_usage);
+}
+function tgRow(t) {
+  const groups = attachedGroups();
+  const attached = groups.indexOf(t.gssi) >= 0;
+  const sel = selectedGssi();
+  const isSel = attached && t.gssi === sel;
+  const tag = isSel ? `<div class="gtag active">TX</div>` : (attached ? `<div class="gtag scan">SCAN</div>` : "");
+  const action = attached
+    ? `<button class="gdet" onclick="event.stopPropagation();detachGroup(${t.gssi})" aria-label="Drop ${escapeHtml(t.name)}">${ic("minus")}</button>`
+    : `<button class="gadd1" onclick="event.stopPropagation();addScanGroup(${t.gssi},${t.class_of_usage == null ? 0 : t.class_of_usage})" aria-label="Add ${escapeHtml(t.name)} to scan">${ic("plus")}</button>`;
+  const cou = t.class_of_usage == null ? 0 : t.class_of_usage;
+  return `<div class="grow tgrow" onclick="selectGroup(${t.gssi},${cou})">
+      ${tag}
+      <div class="tgbody"><div class="tgname">${escapeHtml(t.name)}</div><div class="tgsub">GSSI ${t.gssi}</div></div>
+      ${action}
+    </div>`;
+}
+function wireGroups() {
+  const el = $("gssi-in"); if (!el) return;
+  el.value = S.gssiBuf || "";
+  el.oninput = () => S.gssiBuf = el.value;
+  el.onkeydown = (e) => { if (e.key === "Enter") attachGroup(); };
+}
+function selectGroup(g, cou) {
+  // Switch talkgroup: detach the currently active set, then attach this one.
+  S.selectedGssi = g;
+  send({ action: "attach_detach_group", op: "select", gssis: [g], class_of_usage: couStr(cou) });
+}
+function addScanGroup(g, cou) {
+  send({ action: "attach_detach_group", op: "attach", gssis: [g], class_of_usage: couStr(cou) });
+}
+function attachGroup() {
+  const el = $("gssi-in");
+  const v = el ? parseInt(el.value, 10) : NaN;
+  if (!v || v < 1) { showAlert("Invalid group", "Enter a valid group GSSI.", "amber"); return; }
+  const t = tgByGssi(v);
+  send({ action: "attach_detach_group", op: "attach", gssis: [v], class_of_usage: couStr(t ? t.class_of_usage : 0) });
+  S.gssiBuf = ""; if (el) el.value = "";
+}
+function detachGroup(g) {
+  send({ action: "attach_detach_group", op: "detach", gssis: [g] });
+}
+function detachAllGroups() {
+  send({ action: "attach_detach_group", op: "detach_all" });
+}
+
+function renderConfig() {
+  return `<div class="hint">Plane B — management. Implementation-defined.</div>
+    <button class="btn ghost" onclick="send({action:'get_config'});push('configview')">${ic("info")} View Config</button>
+    <button class="btn ghost" onclick="if(!S.configToml)send({action:'get_config'});S.editBuf=S.configToml;push('configedit')">${ic("edit")} Edit Config</button>
+    <button class="btn ghost" onclick="send({action:'apply_config'})">${ic("refresh")} Apply Config</button>`;
+}
+function renderConfigView() {
+  if (!S.configToml) return `<div class="empty">${ic("info")}<div>No config loaded</div></div>`;
+  return `<pre class="code">${escapeHtml(S.configToml)}</pre>`;
+}
+function renderConfigEdit() {
+  return `<textarea class="editor" id="editor" spellcheck="false"></textarea>
+    <div class="hint">Leave <b>********</b> untouched to keep the on-disk secret.</div>`;
+}
+function wireEditor() { const ta = $("editor"); if (!ta) return; ta.value = S.editBuf || S.configToml || ""; ta.oninput = () => S.editBuf = ta.value; }
+function saveConfig() { send({ action: "set_config", toml: S.editBuf }); back(); }
+
+function renderInfo() {
+  const id = identity();
+  return `<div class="panel">
+      <div class="kv"><span class="k">Interface</span><span class="v">${S.version || "unknown"}</span></div>
+      <div class="kv"><span class="k">Control link</span><span class="v">${S.control ? pill("UP", "p-g") : pill("DOWN", "p-r")}</span></div>
+      <div class="kv"><span class="k">Telemetry link</span><span class="v">${S.telemetry ? pill("UP", "p-g") : pill("DOWN", "p-r")}</span></div>
+      <div class="kv"><span class="k">Own ISSI</span><span class="v">${id ? id.issi : "—"}</span></div>
+      <div class="kv"><span class="k">Home MCC/MNC</span><span class="v">${id ? id.mcc + " / " + id.mnc : "—"}</span></div>
+    </div>
+    <div class="hint" style="text-align:center">Identity is reported by the MS · BlueStation TNMM terminal</div>`;
+}
+
+// ---------- call control UI (dialer, incoming popup, in-call, PTT) ----------
+function renderDialer() {
+  const registered = S.state && S.state.registration_state === "Registered";
+  const buf = S.dialBuf || "";
+  const canCall = registered && buf.length > 0;
+  const offline = !registered ? `<div class="hint">Radio not registered \u2014 register before placing a call.</div>` : "";
+  const dig = (d) => `<button class="key" onpointerdown="dialKey('${d}')">${d}</button>`;
+  const keypad =
+    dig("1") + dig("2") + dig("3") +
+    dig("4") + dig("5") + dig("6") +
+    dig("7") + dig("8") + dig("9") +
+    `<button class="key fn" id="dial-clear" onpointerdown="dialClear()" ${buf ? "" : "disabled"}>C</button>` +
+    dig("0") +
+    `<button class="key fn" id="dial-back" onpointerdown="dialBack()" ${buf ? "" : "disabled"}>${ic("backspace")}</button>`;
+  return `<div class="dialer">
+    ${offline}
+    <div class="dial-mid">
+      <div class="dial-display">
+        <div class="dial-num${buf ? "" : " ph"}" id="dial-num">${buf ? escapeHtml(buf) : "Enter number"}</div>
+        <div class="dial-caption">Individual call \u00b7 private number</div>
+      </div>
+      <div class="keypad">${keypad}</div>
+    </div>
+    <div class="dial-actions">
+      <button class="btn primary call-duplex" id="dial-duplex" onpointerdown="dialPlace(true)" ${canCall ? "" : "disabled"}>${ic("phone")} Duplex call</button>
+    </div>
+    <div class="ptt-dock">
+      <button class="ptt gptt dial-ptt" id="dial-ptt" onpointerdown="dialPlace(false)" oncontextmenu="return false" ${canCall ? "" : "disabled"}>${ic("mic")}<span>Simplex call<em>Push-to-talk</em></span></button>
+    </div>
+  </div>`;
+}
+// Keep the keypad display + action buttons in sync WITHOUT a full re-render, so
+// digit entry feels instant and never rebuilds the whole screen.
+function syncDialer() {
+  if (cur() !== "dialer") return;
+  const buf = S.dialBuf || "";
+  const registered = S.state && S.state.registration_state === "Registered";
+  const canCall = registered && buf.length > 0;
+  const num = $("dial-num");
+  if (num) { num.textContent = buf ? buf : "Enter number"; num.classList.toggle("ph", !buf); }
+  const dup = $("dial-duplex"); if (dup) dup.disabled = !canCall;
+  const ptt = $("dial-ptt"); if (ptt) ptt.disabled = !canCall;
+  const back = $("dial-back"); if (back) back.disabled = !buf;
+  const clr = $("dial-clear"); if (clr) clr.disabled = !buf;
+}
+function wireDialer() { syncDialer(); }
+function dialKey(d) {
+  const buf = S.dialBuf || "";
+  if (buf.length >= 16) return;
+  S.dialBuf = buf + d;
+  syncDialer();
+}
+function dialBack() { S.dialBuf = (S.dialBuf || "").slice(0, -1); syncDialer(); }
+function dialClear() { S.dialBuf = ""; syncDialer(); }
+// Place an individual call from the keypad. The PTT button chooses simplex, the
+// green phone chooses duplex — the call type is the button, not a toggle.
+function dialPlace(duplex) {
+  if (!radioOnline()) { radioOfflineAlert(); return; }
+  const v = parseInt(S.dialBuf, 10);
+  if (!v || v < 1) { showAlert("Invalid number", "Enter a valid private number (ISSI) to call.", "amber"); return; }
+  S.dialing = { call_identifier: null, direction: "mo", state: "dialing",
+                peer_ssi: v, group: false, simplex: !duplex, talker_ssi: null, tx_status: null };
+  send({ action: "call_setup", ssi: v, group: false, duplex: duplex });
+  S.dialBuf = "";
+  if (cur() !== "incall") push("incall"); else render();
+}
+function callStateLabel(c) {
+  if (!c) return "";
+  if (c.state === "dialing") return "Setting up\u2026";
+  if (c.state === "proceeding") return "Calling\u2026";
+  if (c.state === "alerting") return c.queued ? "Queued\u2026" : "Ringing\u2026";
+  if (c.state === "connecting") return "Connecting\u2026";
+  if (c.state === "active") return c.group ? "Group call active" : "Connected";
+  return c.state;
+}
+function partyName(ssi) { if (ssi == null) return "\u2014"; const t = tgByGssi(ssi); return t ? t.name : String(ssi); }
+function renderIncall() {
+  const c = liveCall();
+  if (!c) return `<div class="empty">${ic("phone")}<div>No active call</div></div>`;
+  const dir = c.direction === "mt" ? "Incoming" : "Outgoing";
+  const label = callStateLabel(c);
+  const active = c.state === "active";
+  // Simplex active call -> a PTT button; duplex -> nothing but the hang-up.
+  const ptt = (active && c.simplex) ? renderPtt(c) : "";
+  // Individual calls are hung up from the red button in the bottom nav bar's
+  // right slot (see softkeys), not a big button in the call body. Group calls
+  // are cleared by the infrastructure / detach, so neither shows a body button.
+  // The PTT sits in a fixed bottom .ptt-dock — the SAME position as the group
+  // call and the home-screen PTT — so it never floats in the call body.
+  return `<div class="idle">
+      <div class="idle-mid">
+        <div class="call-hero">
+          <div class="call-dir">${dir}</div>
+          <div class="call-peer">${escapeHtml(partyName(c.peer_ssi))}</div>
+          <div class="call-sub">${c.peer_ssi != null ? c.peer_ssi : ""}</div>
+          <div class="call-state">${escapeHtml(label)}</div>
+          ${(active && !c.group) ? `<div class="call-clock">${callClockText(c)}</div>` : ""}
+        </div>
+      </div>
+      <div class="ptt-dock">${ptt}</div>
+    </div>`;
+}
+function renderPtt(c) {
+  // Only light the button while I am actually holding it. Drive ON AIR off
+  // holds_floor (set in applyFloor) rather than the raw tx_status: the stack
+  // echoes our own transmission back as GrantedToAnotherUser mid-talkspurt, which
+  // would otherwise flip tx_status away from "TransmissionGranted" and make the
+  // TX light blink off while we are still keyed. holds_floor stays true through
+  // the whole talkspurt and only clears on cease / a real other-user grant.
+  const holding = S.pttHeld === c.call_identifier;
+  const on = holding && !!c.holds_floor;
+  const req = holding && !c.holds_floor &&
+    (c.tx_status === "TransmissionRequestQueued" || c.tx_status === "TransmissionWait" || c.tx_status == null);
+  // Same docked look as the group PTT (.gptt), since it now lives in .ptt-dock.
+  const cls = on ? "ptt gptt on" : (req ? "ptt gptt req" : "ptt gptt");
+  const label = on ? "ON AIR" : (req ? "Requesting\u2026" : "Push to talk");
+  return `<button class="${cls}" id="ptt"
+      onpointerdown="pttDown(${c.call_identifier})" onpointerup="pttUp()"
+      oncontextmenu="return false">${ic("mic")}<span>${label}</span></button>`;
+}
+function callIdOf(c) { return c && c.call_identifier != null ? c.call_identifier : null; }
+function pttDown(cid) {
+  if (cid == null) return;
+  if (!radioOnline()) { radioOfflineAlert(); return; }
+  S.pttHeld = cid;
+  send({ action: "ptt", call_identifier: cid, pressed: true });
+  micStart(cid);
+  refreshHeldPtt();
+}
+function pttUp() {
+  if (S.pttHeld == null) return;
+  const cid = S.pttHeld; S.pttHeld = null;
+  micStop();
+  send({ action: "ptt", call_identifier: cid, pressed: false });
+  render();
+}
+function hangupCurrent() {
+  const c = liveCall(); const cid = callIdOf(c);
+  if (cid == null) { if (S.dialing) S.dialing = null; if (cur() === "incall") back(); return; }
+  // Mark this as our own hangup so the pending TnccReleaseIndication doesn't pop
+  // a "Call ended" notification — the operator just ended it, they know.
+  S.localEnd = S.localEnd || {}; S.localEnd[cid] = true;
+  micStop();
+  send({ action: "call_release", call_identifier: cid });
+  delete S.calls[cid];
+  if (cur() === "incall") back();
+}
+// Explicitly tear down the active group call from the home-screen nav Hang up.
+function hangupGroup() {
+  const c = groupCallEntry() || activeGroupCall();
+  const cid = c ? c.call_identifier : (S.grpCall ? S.grpCall.cid : null);
+  if (cid != null) {
+    send({ action: "call_release", call_identifier: cid });
+    delete S.calls[cid];
+  }
+  S.grpCall = null;
+  if (S.dialing && S.dialing.group) S.dialing = null;
+  render();
+}
+function answerCall(cid) {
+  if (!radioOnline()) { radioOfflineAlert(); return; }
+  const c = S.calls[cid];
+  const onHook = c && c.hook === "HookOnHookOffSignallingOrCallAcceptanceSignalling";
+  const duplex = c ? !c.simplex : false;
+  // On/off-hook: Accept = TnccComplete (U-CONNECT). Direct: Accept = TnccSetupResponse.
+  // Either way we go to "connecting" and only reach "active" on the confirm event.
+  send({ action: onHook ? "call_complete" : "call_answer", call_identifier: cid, duplex: duplex });
+  // Explicit user consent: only NOW may this incoming call surface the in-call
+  // screen. Until this flag is set, the call stays behind the ring notification
+  // no matter what lifecycle events the radio sends (Proceed/Alert/echoed
+  // confirms), so an incoming call can never look "auto-answered".
+  if (c) { c.answered = true; c.state = "connecting"; }
+  if (cur() !== "incall") push("incall"); else render();
+}
+function rejectCall(cid) {
+  send({ action: "call_reject", call_identifier: cid });
+  delete S.calls[cid];
+  render();
+}
+// Incoming-call popup, drawn as an overlay independent of the nav stack.
+function incomingHtml(c) {
+  return `<div class="inc-card" role="alertdialog" aria-modal="true">
+      <div class="inc-ring">${ic("phone")}</div>
+      <div class="inc-lbl">Incoming call</div>
+      <div class="inc-peer">${escapeHtml(partyName(c.peer_ssi))}</div>
+      <div class="inc-sub">${c.peer_ssi != null ? c.peer_ssi : ""}${c.simplex ? " · PTT" : " · duplex"}</div>
+      <div class="inc-btns">
+        <button class="inc-btn reject" onclick="rejectCall(${c.call_identifier})">${ic("phoneOff")}<span>Reject</span></button>
+        <button class="inc-btn answer" onclick="answerCall(${c.call_identifier})">${ic("phone")}<span>Answer</span></button>
+      </div>
+    </div>`;
+}
+function syncCallOverlay() {
+  const dev = document.querySelector(".device"); if (!dev) return;
+  let el = document.querySelector(".callov");
+  const inc = incomingCall();
+  if (inc) {
+    const key = "inc" + inc.call_identifier;
+    if (!el) { el = document.createElement("div"); el.className = "callov"; dev.appendChild(el); }
+    if (el.dataset.k !== key) { el.innerHTML = incomingHtml(inc); el.dataset.k = key; }
+  } else if (el) {
+    el.remove();
+  }
+}
+
+// ---------- soft keys (bottom navigation bar) ----------
+// The BAR'S LOOK is defined in exactly two places and nowhere else:
+//   1. the `.softkeys` / `.sk` CSS  (layout, height, button appearance)
+//   2. `skBtn()`                    (markup for one button)
+// Every screen only declares WHICH buttons sit in the 3 slots (left/center/right)
+// via NAVBAR below. Defaults are Back (left) and Home (center); a screen only
+// overrides what differs. This is the single source of truth for the bar.
+const SK_BACK = ["back", "Back", "back()"];
+const SK_HOME = ["home", "Home", "goHome()"];
+const SK_MENU = ["menu", "Menu", "push('menu')"];
+
+// Per-screen overrides. Omitted slots fall back to the defaults; `null` = empty slot.
+const NAVBAR = {
+  home:       { left: SK_MENU, center: null,   right: ["phone", "Call", "push('dialer')"] },
+  status:     { right: ["refresh", "Refresh", "send({action:'get_state'})"] },
+  configview: { right: ["edit", "Edit", "S.editBuf=S.configToml;push('configedit')"] },
+  configedit: { right: ["check", "Save", "saveConfig()"] },
+  register:   { right: ["check", "Register", "doRegister()"] },
+  deregister: { right: ["check", "Confirm", "doDeregister()"] },
+  dialer:     { right: null },
+  incall:     { left: SK_HOME, center: null, right: ["phoneOff", "Hang up", "hangupCurrent()", "danger"] },
+};
+
+function skBtn(spec) {
+  if (!spec) return `<span class="sk-slot" aria-hidden="true"></span>`;
+  const [icon, label, action, cls] = spec;
+  return `<button class="sk${cls ? " " + cls : ""}" onclick="${action}">${ic(icon)}<span>${label}</span></button>`;
+}
+function softkeys(name) {
+  const cfg = NAVBAR[name] || {};
+  const left = "left" in cfg ? cfg.left : SK_BACK;
+  const center = "center" in cfg ? cfg.center : SK_HOME;
+  let right = "right" in cfg ? cfg.right : null;
+  // Group calls have no Hang up in the in-call screen — but the home screen
+  // shows a red Hang up in the right slot while a group call is up.
+  if (name === "incall") {
+    const c = liveCall();
+    right = (c && c.group) ? null : ["phoneOff", "Hang up", "hangupCurrent()", "danger"];
+  } else if (name === "home" && groupCallActive()) {
+    right = ["phoneOff", "Hang up", "hangupGroup()", "danger"];
+  }
+  return skBtn(left) + skBtn(center) + skBtn(right);
+}
+
+// ---------- alert dialog ----------
+function escapeHtml(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+// Over-the-top modal for important notifications only (service loss, errors, rejects).
+// Routine progress/confirmations are reflected by the UI state itself, not by popups.
+function showAlert(title, message, kind) {
+  dismissAlert();
+  const k = kind || "amber";
+  const icon = k === "red" ? "alert" : k === "green" ? "check" : "info";
+  const back = document.createElement("div");
+  back.className = "alert-back alert-" + k;
+  back.innerHTML = `<div class="alert-card" role="alertdialog" aria-modal="true">
+      <div class="alert-top">
+        <div class="alert-ic">${ic(icon)}</div>
+        <div class="alert-title">${escapeHtml(title)}</div>
+        ${message ? `<div class="alert-msg">${escapeHtml(message)}</div>` : ""}
+      </div>
+      <button class="alert-btn" type="button">OK</button>
+    </div>`;
+  back.addEventListener("click", (e) => { if (e.target === back) dismissAlert(); });
+  back.querySelector(".alert-btn").addEventListener("click", dismissAlert);
+  document.querySelector(".device").appendChild(back);
+  clearTimeout(alertTimer); alertTimer = setTimeout(dismissAlert, 2000);
+}
+function dismissAlert() { clearTimeout(alertTimer); const el = document.querySelector(".alert-back"); if (el) el.remove(); }
+
+// Rotary-knob feel: arrow keys cycle talkgroups, Enter selects (Groups screen only).
+document.addEventListener("keydown", (e) => {
+  if (cur() !== "groups" && cur() !== "home") return;
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
+  if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); cycleTg(-1); }
+  else if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); cycleTg(1); }
+  else if (e.key === "Enter") { e.preventDefault(); selectCycled(); }
+});
+
+// Pin the app to the *actual* visible viewport height. Mobile browsers report
+// 100vh (and even 100dvh, intermittently) larger than the visible area while
+// the address bar is showing, which pushes the sticky softkeys off-screen.
+// Driving the height from window.innerHeight avoids that on every browser.
+function setAppHeight() {
+  const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  document.documentElement.style.setProperty("--app-h", h + "px");
+}
+window.addEventListener("resize", setAppHeight);
+window.addEventListener("orientationchange", setAppHeight);
+
+// ---------------------------------------------------------------------------
+// PTT RELEASE — made bulletproof.
+// The bug: in some (embedded/streamed) browsers the "let go" pointerup/mouseup
+// is never delivered, so PTT state stayed stuck ON AIR and further presses kept
+// re-keying the radio. We now detect release three independent ways:
+//   1) the usual up/cancel events (pointerup/mouseup/touchend/…)
+//   2) a WATCHDOG: any pointer/mouse move whose `buttons`/`which` shows no button
+//      pressed while we think PTT is held  => the button was released, we missed
+//      the up event. This does not depend on the up event firing at all.
+//   3) key up (space) for keyboard PTT, and window blur as a last resort.
+function anyPttHeld() { return (S.pttHeld != null) || !!(S.grpCall && S.grpCall.talking); }
+function releaseAllPtt(reason) {
+  if (!anyPttHeld()) return;
+  pttDebug("RELEASE(" + (reason || "?") + ")");
+  if (S.pttHeld != null) pttUp();
+  if (S.grpCall && S.grpCall.talking) grpPttUp();
+}
+// Direct up/cancel events (capture phase, on both document and window for webviews).
+["pointerup", "pointercancel", "mouseup", "touchend", "touchcancel"].forEach(ev => {
+  const h = () => releaseAllPtt(ev);
+  window.addEventListener(ev, h, true);
+  document.addEventListener(ev, h, true);
+});
+// Watchdog: if the primary button is no longer down but we still think PTT is
+// held, the up event was lost — release now. Fires on the very next move.
+// Guarded by _sawButtonDown so environments that never report `buttons` (some
+// webviews send buttons=0 even mid-hold) don't kill PTT prematurely; there we
+// simply rely on the up/cancel events instead.
+var _sawButtonDown = false;
+function recordButtons(e) {
+  const b = (typeof e.buttons === "number") ? e.buttons
+          : (typeof e.which === "number" && e.which > 0) ? 1 : 0;
+  if (b > 0) _sawButtonDown = true;
+}
+["pointerdown", "mousedown"].forEach(ev => {
+  window.addEventListener(ev, recordButtons, true);
+  document.addEventListener(ev, recordButtons, true);
+});
+function moveWatch(e) {
+  if (!anyPttHeld() || !_sawButtonDown) return;
+  const noButton = (typeof e.buttons === "number") ? e.buttons === 0
+                 : (typeof e.which === "number") ? e.which === 0 : false;
+  if (noButton) { _sawButtonDown = false; releaseAllPtt(e.type + "/no-button"); }
+}
+["pointermove", "mousemove"].forEach(ev => {
+  window.addEventListener(ev, moveWatch, true);
+  document.addEventListener(ev, moveWatch, true);
+});
+// Also clear the flag whenever PTT is released by any path.
+["pointerup", "mouseup", "pointercancel", "touchend", "touchcancel"].forEach(ev =>
+  window.addEventListener(ev, () => { _sawButtonDown = false; }, true));
+// Keyboard PTT release + safety nets.
+window.addEventListener("keyup", e => { if (e.code === "Space") releaseAllPtt("space"); });
+window.addEventListener("blur", () => releaseAllPtt("blur"));
+
+// Suppress the mobile long-press gesture on the PTT buttons. Holding a button on
+// a phone otherwise triggers the native callout / text-selection / magnifier,
+// which hijacks the touch and drops the hold (PTT "loses focus" mid-transmit).
+// preventDefault on touchstart kills that gesture — but it MUST be a non-passive
+// listener or the browser ignores the preventDefault. We only cancel for the PTT
+// buttons so the rest of the UI keeps normal touch behaviour.
+function isPttTarget(e) {
+  const t = e.target;
+  return !!(t && t.closest && t.closest("#gptt, #ptt, .ptt"));
+}
+document.addEventListener("touchstart", e => {
+  if (isPttTarget(e) && e.cancelable) e.preventDefault();
+}, { passive: false, capture: true });
+// A long-press can still fire contextmenu on some engines even with the callout
+// disabled; swallow it whenever a PTT is held or the press is on a PTT button.
+window.addEventListener("contextmenu", e => {
+  if (anyPttHeld() || isPttTarget(e)) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+
+// ---------------------------------------------------------------------------
+// PTT DEBUG HUD — open the page with ?ptt=1 to see exactly which input events
+// the browser delivers on press/release. This is how we diagnose "sticky PTT"
+// in an environment we can't reproduce headlessly.
+var PTT_DEBUG = /[?&]ptt=1\b/.test(location.search);
+var _pttLog = [];
+function pttDebug(msg) {
+  if (!PTT_DEBUG) return;
+  const t = new Date().toISOString().slice(11, 23);
+  _pttLog.push(t + "  " + msg);
+  if (_pttLog.length > 16) _pttLog.shift();
+  const el = document.getElementById("pttdbg");
+  if (el) el.textContent = _pttLog.join("\n");
+}
+if (PTT_DEBUG) {
+  const box = document.createElement("pre");
+  box.id = "pttdbg";
+  box.style.cssText = "position:fixed;left:4px;bottom:4px;z-index:99999;margin:0;max-width:96vw;max-height:44vh;overflow:auto;background:rgba(0,0,0,.85);color:#0f0;font:10px/1.35 monospace;padding:6px 8px;border-radius:6px;pointer-events:none;white-space:pre-wrap";
+  const attach = () => document.body.appendChild(box);
+  if (document.body) attach(); else window.addEventListener("DOMContentLoaded", attach);
+  ["pointerdown", "pointerup", "pointercancel", "mousedown", "mouseup",
+   "touchstart", "touchend", "touchcancel", "click", "blur"].forEach(ev => {
+    window.addEventListener(ev, e => {
+      const tgt = (e.target && (e.target.id || e.target.className || e.target.tagName)) || "?";
+      const b = (e.buttons != null ? " buttons=" + e.buttons : "");
+      pttDebug(ev + b + "  <" + String(tgt).slice(0, 24) + ">");
+    }, true);
+  });
+  pttDebug("PTT debug on. held=" + anyPttHeld());
+}
+
+if (window.visualViewport) window.visualViewport.addEventListener("resize", setAppHeight);
+setAppHeight();
+
+setInterval(renderStatusbar, 1000);
+setInterval(tickCallClocks, 1000);
+primeAudioOnGesture();
+connect();
+render();
+</script>
+</body>
+</html>
