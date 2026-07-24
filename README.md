@@ -108,6 +108,12 @@ registration_type = "RegistrationToIndicatedCell"
   (polled via `GetState` every ~2 s), including serving-cell `rssi_dbfs` (drives
   the signal bars); a scrolling, timestamped telemetry event log; interface
   schema version.
+- **Two-way voice** (ACELP): downlink RX decodes `MsSpeechFrame` telemetry to
+  PCM the browser plays; uplink TX captures the mic, encodes to ACELP and sends
+  `MsUplinkSpeech`. Push-to-talk floor arbitration for simplex and group calls
+  (ON AIR / floor indicators), and hands-free auto-streaming for full-duplex
+  individual calls. Works over `http://localhost` with no TLS; TLS is only
+  needed for mic access over the LAN.
 - **Command controls** with `handle` correlation: Register, Deregister, group
   attach/detach, Get State / Config / Interface Version, Set Config + Apply
   Config with a `restart_required` banner.
@@ -180,9 +186,13 @@ Notes:
 
 ## License & third-party code
 
-The application code in this repository is ours. **The ETSI EN 300 395-2 TETRA
-ACELP speech codec is not included**: it is ETSI-copyrighted and must be
-obtained separately and placed in `native/etsi/`. See
-[`native/ETSI-CODEC.md`](native/ETSI-CODEC.md) for the required files and build
-details. Confirm your own redistribution rights before publishing any fork that
-bundles those sources or the libraries built from them.
+This project's own code is licensed under the **Apache License 2.0** — see
+[`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Reuse is permitted provided you
+keep the copyright/attribution notices.
+
+**The ETSI EN 300 395-2 TETRA ACELP speech codec is not included** and is *not*
+covered by that license: it is ETSI-copyrighted and must be obtained separately
+and placed in `native/etsi/`. See [`native/ETSI-CODEC.md`](native/ETSI-CODEC.md)
+for the required files and build details. Confirm your own redistribution rights
+before publishing any fork that bundles those sources or the libraries built
+from them.

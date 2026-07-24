@@ -1,0 +1,16 @@
+TNMM Demo UI (tetra-tn-web-ui)
+Copyright 2026 misadeks
+
+This product includes software developed by misadeks.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+--------------------------------------------------------------------------------
+Third-party components (not covered by the Apache-2.0 license above)
+--------------------------------------------------------------------------------
+
+ETSI EN 300 395-2 TETRA ACELP speech codec
+  The reference codec source is copyrighted by ETSI and is NOT distributed with
+  this project. It must be obtained separately and placed in native/etsi/.
+  See native/ETSI-CODEC.md. Any compiled libraries derived from it remain
+  subject to ETSI's terms.
