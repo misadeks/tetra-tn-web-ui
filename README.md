@@ -163,7 +163,12 @@ For push-to-talk / duplex audio the browser needs both a secure origin and the
 codec:
 
 ```bash
-# HTTPS dashboard (accept the one-time self-signed warning), needed for the mic
+# From the same machine: http://localhost:18080 is already a secure context,
+# so the mic works over plain HTTP — no TLS needed.
+python -m app --simulate
+
+# Over the LAN (any other host/IP): browsers require HTTPS for mic access, so
+# serve TLS and accept the one-time self-signed warning.
 python -m app --simulate --tls
 ```
 
