@@ -234,6 +234,29 @@
   .gin:focus { outline: none; border-color: var(--accent); }
   .gattach { width: auto; height: 52px; margin-top: 0; padding: 0 20px; white-space: nowrap; }
 
+  /* ---------- codeplug editor ---------- */
+  .fld { margin: 0 0 14px; }
+  .fld > label { display: block; font-size: 11px; letter-spacing: 1.2px; color: var(--faint);
+                 font-weight: 600; margin: 0 4px 6px; text-transform: uppercase; }
+  select.gin { width: 100%; -webkit-appearance: none; appearance: none; cursor: pointer;
+               background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237c8b99' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+               background-repeat: no-repeat; background-position: right 14px center; padding-right: 40px; }
+  .cpr { display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-radius: 14px; cursor: pointer;
+         background: var(--surface); border: 1px solid var(--line); transition: background .12s, transform .05s; margin-bottom: 8px; }
+  .cpr:active { transform: scale(.99); background: #16202b; }
+  .cpr .cpr-b { flex: 1; min-width: 0; }
+  .cpr .cpr-t { font-size: 16px; font-weight: 600; }
+  .cpr .cpr-s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .cksel { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ckchip { padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--surface);
+            color: var(--muted); font-size: 13px; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .ckchip.on { background: rgba(51,167,221,.14); border-color: rgba(51,167,221,.5); color: #cfe7f4; }
+  .srow { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px; }
+  .srow-t { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .srow-s { font-size: 12px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .srow-act { display: flex; gap: 8px; margin-top: 10px; }
+  .srow-act .btn { flex: 1; margin-top: 0; padding: 11px; font-size: 14px; }
+
   /* ---------- menu list ---------- */
   .mlabel { font-size: 11px; letter-spacing: 2px; color: var(--faint); font-weight: 600; margin: 2px 4px 10px; }
   .menu { display: flex; flex-direction: column; gap: 8px; }
@@ -468,7 +491,8 @@ const S = {
   configToml: "", codeplug: null, selectedGssi: null, selFolder: null, cycleGssi: null,
   events: [], unread: 0, editBuf: "", regType: "RegistrationToIndicatedCell", _detail: 0,
   calls: {}, dialing: null, dialBuf: "", dialGroup: false, dialDuplex: false, pttHeld: null, grpCall: null,
-  groupCids: {},
+  groupCids: {}, cp: null, cpDirty: false, cpIdx: 0,
+  scan: { rows: [], complete: false, found: 0, scanned: 0, scanning: false },
 };
 
 // The radio's identity is owned by the MS — derived from live MsRuntimeState, never configured.
@@ -646,6 +670,7 @@ function onResponse(env) {
     if (iv === "State" && inner) { S.state = inner.state; reconcileSelected(); }
     if (iv === "InterfaceVersion" && inner) S.version = inner.version;
     if (iv === "Config" && inner) { S.configToml = inner.toml || ""; if (cur() === "configedit" && !S.editBuf) S.editBuf = S.configToml; }
+    if (iv === "Ack" && inner && inner.accepted === false) showAlert("Command rejected", inner.message || "The stack rejected the request.", "amber");
     if (iv === "Ack" && inner && inner.restart_required) showAlert("Restart required", "Configuration staged \u2014 restart the stack to apply.", "amber");
     if (iv === "Error" && inner) showAlert("Error", inner.message || "Management command failed.", "red");
   }
@@ -674,6 +699,17 @@ function onTelemetry(env) {
     if (now && now !== prev) {
       if (now === "OutOfService") showAlert("No service", "Downlink lost \u2014 the radio has left coverage.", "red");
     }
+  }
+  else if (name === "MsScanResult") {
+    if (!S.scan) S.scan = { rows: [], complete: false, found: 0, scanned: 0, scanning: true };
+    S.scan.scanning = true; S.scan.complete = false;
+    S.scan.rows.push(p || {});
+  }
+  else if (name === "MsScanComplete") {
+    if (!S.scan) S.scan = { rows: [], complete: false, found: 0, scanned: 0, scanning: false };
+    S.scan.complete = true; S.scan.scanning = false;
+    S.scan.found = p && p.found != null ? p.found : S.scan.rows.length;
+    S.scan.scanned = p && p.scanned != null ? p.scanned : 0;
   }
   else if (name && name.indexOf("Tncc") === 0) {
     const cid = p && p.call_identifier;
@@ -1353,7 +1389,10 @@ function groupCallActive() {
 const TITLES = { menu: "Menu", register: "Register", deregister: "Deregister", status: "Radio Status",
   messages: "Logs", msgdetail: "Log entry", groups: "Groups", config: "Configuration",
   configview: "View Config", configedit: "Edit Config", info: "Radio Info", folders: "Folders",
-  dialer: "New Call", incall: "Call" };
+  dialer: "New Call", incall: "Call",
+  cpedit: "Codeplug", cptgs: "Talkgroups", cptgform: "Talkgroup", cpfolders: "Folders",
+  cpfolderform: "Folder", cpscans: "Scan Lists", cpscanform: "Scan List", cpfreqs: "Frequencies",
+  cpfreqform: "Frequency List", cpnets: "Networks",   cpnetform: "Network", cpident: "Network Identity", survey: "Cell Survey" };
 
 function renderStatusbar() {
   const bars = signalBars();
@@ -1403,6 +1442,10 @@ const VIEWS = {
   messages: renderMessages, msgdetail: renderMsgDetail, groups: renderGroups, config: renderConfig,
   configview: renderConfigView, configedit: renderConfigEdit, info: renderInfo, folders: renderFolders,
   dialer: renderDialer, incall: renderIncall,
+  cpedit: renderCpEdit, cptgs: renderCpTgs, cptgform: renderCpTgForm, cpfolders: renderCpFolders,
+  cpfolderform: renderCpFolderForm, cpscans: renderCpScans, cpscanform: renderCpScanForm,
+  cpfreqs: renderCpFreqs, cpfreqform: renderCpFreqForm, cpnets: renderCpNets, cpnetform: renderCpNetForm,
+  cpident: renderCpIdent, survey: renderSurvey,
 };
 
 const MENU = [
@@ -1412,6 +1455,8 @@ const MENU = [
   { t: "Radio Status", k: "status", c: "blue", i: "activity" },
   { t: "Logs", k: "messages", c: "teal", i: "logs" },
   { t: "Groups", k: "groups", c: "indigo", i: "users" },
+  { t: "Cell Survey", k: "survey", c: "teal", i: "scan" },
+  { t: "Codeplug", k: "cpedit", c: "gold", i: "edit" },
   { t: "Configuration", k: "config", c: "gold", i: "gear" },
   { t: "Radio Info", k: "info", c: "accent", i: "info" },
 ];
@@ -1506,6 +1551,7 @@ function renderHomeCycler(treeArr) {
   const groups = attachedGroups();
   const attached = groups.indexOf(t.gssi) >= 0;
   const isTx = attached && t.gssi === selectedGssi();
+  const registered = S.state && S.state.registration_state === "Registered";
   const scanning = groups.length > 1;
   const scanCount = groups.length - 1;
   const badge = isTx ? `<div class="cyc-badge tx">ON AIR</div>`
@@ -1525,7 +1571,7 @@ function renderHomeCycler(treeArr) {
         </div>
         <button class="hcyc-arrow" ${many ? "" : "disabled"} onclick="cycleTg(1)" aria-label="Next talkgroup">${ic("chev")}</button>
       </div>
-      <button class="btn primary hcyc-select" ${isTx ? "disabled" : ""} onclick="selectCycled()">${ic("check")} ${isTx ? "On air" : "Select talkgroup"}</button>
+      <button class="btn primary hcyc-select" ${isTx || !registered ? "disabled" : ""} onclick="selectCycled()">${ic("check")} ${isTx ? "On air" : "Select talkgroup"}</button>
       ${scanChip}`;
 }
 
@@ -2044,6 +2090,328 @@ function renderConfigEdit() {
 function wireEditor() { const ta = $("editor"); if (!ta) return; ta.value = S.editBuf || S.configToml || ""; ta.oninput = () => S.editBuf = ta.value; }
 function saveConfig() { send({ action: "set_config", toml: S.editBuf }); back(); }
 
+// ---------- codeplug editor (structured) ----------
+// A working buffer (S.cp) is snapshotted from the parsed codeplug so edits are
+// staged locally and only pushed to the MS on Save (set_codeplug → SetConfig).
+function attr(s) { return escapeHtml(s == null ? "" : s).replace(/"/g, "&quot;"); }
+function cpEnsure() {
+  if (S.cp) return;
+  const cp = S.codeplug || {};
+  S.cp = {
+    folders: (cp.folders || []).map(f => ({ ...f })),
+    talkgroups: (cp.talkgroups || []).map(t => ({ ...t })),
+    scanlists: (cp.scanlists || []).map(s => ({ ...s, talkgroups: [...(s.talkgroups || [])] })),
+    frequency_lists: (cp.frequency_lists || []).map(f => ({ ...f, frequencies: [...(f.frequencies || [])] })),
+    networks: (cp.networks || []).map(n => ({ ...n })),
+    mcc: cp.mcc == null ? null : cp.mcc,
+    mnc: cp.mnc == null ? null : cp.mnc,
+    cell_info: {
+      location_area: (cp.cell_info && cp.cell_info.location_area != null) ? cp.cell_info.location_area : null,
+      colour_code: (cp.cell_info && cp.cell_info.colour_code != null) ? cp.cell_info.colour_code : null,
+    },
+    attach_groups: [...(cp.attach_groups || [])],
+  };
+  S.cpDirty = false;
+}
+function cpDiscard() { S.cp = null; S.cpDirty = false; cpEnsure(); render(); }
+function fld(label, inner) { return `<div class="fld"><label>${label}</label>${inner}</div>`; }
+function backEmpty() { setTimeout(back, 0); return ""; }
+function cpNumIn(path, val, extra) {
+  return `<input class="gin" type="number" inputmode="numeric" value="${val == null ? "" : val}" oninput="${path}" ${extra || ""}>`;
+}
+function cpDirtyBanner() { return S.cpDirty ? ' · <b style="color:#f2c96b">Unsaved changes</b>' : ""; }
+
+function renderCpEdit() {
+  if (!S.codeplug) {
+    if (!S.control) {
+      return `<div class="empty">${ic("info")}
+        <div>Radio not connected</div>
+        <div class="hint" style="text-align:center;max-width:290px">The codeplug lives on the MS and is read over the control link. Connect the radio and it loads automatically.</div></div>`;
+    }
+    if (!S._cpReq) S._cpReq = send({ action: "get_config" });
+    return `<div class="empty">${ic("gear")}<div>Loading codeplug\u2026</div></div>`;
+  }
+  cpEnsure();
+  const cp = S.cp;
+  const rows = [
+    ["cptgs", "users", "Talkgroups", cp.talkgroups.length + " programmed"],
+    ["cpfolders", "folder", "Folders", cp.folders.length + " folders"],
+    ["cpscans", "scan", "Scan Lists", cp.scanlists.length + " lists"],
+    ["cpfreqs", "activity", "Frequencies", cp.frequency_lists.length + " lists"],
+    ["cpnets", "activity", "Networks", cp.networks.length + " networks"],
+    ["cpident", "gear", "Network Identity", "MCC " + (cp.mcc == null ? "\u2014" : cp.mcc) + " \u00b7 MNC " + (cp.mnc == null ? "\u2014" : cp.mnc)],
+  ];
+  const rgb = RGB.gold;
+  const nav = ([k, i, t, s]) => `<div class="mrow" onclick="push('${k}')">
+      <div class="mic" style="background:rgba(${rgb},.15);color:rgb(${rgb})">${ic(i)}</div>
+      <div class="mtx"><div>${t}</div><div class="gsub">${s}</div></div>${ic("chev", "chev")}
+    </div>`;
+  return `<div class="hint">Program the radio, then <b>Save</b> to stage it to the MS.${cpDirtyBanner()}</div>
+    <div class="menu">${rows.map(nav).join("")}</div>
+    <button class="btn ghost" onclick="send({action:'apply_config'})">${ic("refresh")} Apply Config (restart MS)</button>
+    ${S.cpDirty ? `<button class="btn dormant" onclick="cpDiscard()">${ic("x")} Discard changes</button>` : ""}`;
+}
+
+// -- talkgroups --
+function cpFolderName(id) {
+  if (id == null || id === "") return "No folder";
+  const f = (S.cp.folders || []).find(f => f.id === id);
+  return f ? f.name : id;
+}
+function renderCpTgs() {
+  cpEnsure();
+  const tgs = S.cp.talkgroups;
+  if (!tgs.length) return `<div class="empty">${ic("users")}<div>No talkgroups</div></div>`;
+  return tgs.map((t, i) => `<div class="cpr" onclick="cpOpenTg(${i})">
+      <div class="cpr-b"><div class="cpr-t">${escapeHtml(t.name || "(unnamed)")}</div>
+        <div class="cpr-s">GSSI ${t.gssi == null ? "\u2014" : t.gssi} \u00b7 ${escapeHtml(cpFolderName(t.folder))} \u00b7 COU ${t.class_of_usage == null ? 0 : t.class_of_usage}</div></div>
+      ${ic("chev", "chev")}</div>`).join("");
+}
+function cpOpenTg(i) { S.cpIdx = i; push("cptgform"); }
+function cpAddTg() {
+  cpEnsure();
+  S.cp.talkgroups.push({ gssi: null, name: "", folder: (S.cp.folders[0] && S.cp.folders[0].id) || "", class_of_usage: 0, order: S.cp.talkgroups.length + 1 });
+  S.cpDirty = true; S.cpIdx = S.cp.talkgroups.length - 1; push("cptgform");
+}
+function renderCpTgForm() {
+  const t = S.cp && S.cp.talkgroups[S.cpIdx];
+  if (!t) return backEmpty();
+  const folderOpts = [`<option value="">No folder</option>`].concat((S.cp.folders || [])
+    .map(f => `<option value="${attr(f.id)}" ${f.id === t.folder ? "selected" : ""}>${escapeHtml(f.name)}</option>`)).join("");
+  const couOpts = [0, 1, 2, 3, 4, 5, 6, 7].map(n => `<option value="${n}" ${n === (t.class_of_usage || 0) ? "selected" : ""}>${n}</option>`).join("");
+  return `${fld("Name", `<input class="gin" value="${attr(t.name)}" oninput="cpSetTg(${S.cpIdx},'name',this.value)">`)}
+    ${fld("GSSI", cpNumIn(`cpSetTg(${S.cpIdx},'gssi',this.value,1)`, t.gssi))}
+    ${fld("Folder", `<select class="gin" onchange="cpSetTg(${S.cpIdx},'folder',this.value)">${folderOpts}</select>`)}
+    ${fld("Class of usage (on-air 0\u20137)", `<select class="gin" onchange="cpSetTg(${S.cpIdx},'class_of_usage',this.value,1)">${couOpts}</select>`)}
+    ${fld("Order", cpNumIn(`cpSetTg(${S.cpIdx},'order',this.value,1)`, t.order))}
+    <button class="btn danger" onclick="cpDelTg(${S.cpIdx})">${ic("minus")} Delete talkgroup</button>`;
+}
+function cpSetTg(i, k, v, num) { const t = S.cp.talkgroups[i]; t[k] = num ? (v === "" ? null : parseInt(v, 10)) : v; S.cpDirty = true; }
+function cpDelTg(i) { S.cp.talkgroups.splice(i, 1); S.cpDirty = true; back(); }
+
+// -- folders --
+function renderCpFolders() {
+  cpEnsure();
+  const fs = S.cp.folders;
+  if (!fs.length) return `<div class="empty">${ic("folder")}<div>No folders</div></div>`;
+  return fs.map((f, i) => `<div class="cpr" onclick="cpOpenFolder(${i})">
+      <div class="cpr-b"><div class="cpr-t">${escapeHtml(f.name || "(unnamed)")}</div>
+        <div class="cpr-s">id ${escapeHtml(f.id || "\u2014")} \u00b7 order ${f.order == null ? 0 : f.order}</div></div>
+      ${ic("chev", "chev")}</div>`).join("");
+}
+function cpOpenFolder(i) { S.cpIdx = i; push("cpfolderform"); }
+function cpAddFolder() {
+  cpEnsure();
+  S.cp.folders.push({ id: "", name: "", order: S.cp.folders.length + 1 });
+  S.cpDirty = true; S.cpIdx = S.cp.folders.length - 1; push("cpfolderform");
+}
+function renderCpFolderForm() {
+  const f = S.cp && S.cp.folders[S.cpIdx];
+  if (!f) return backEmpty();
+  return `${fld("Name", `<input class="gin" value="${attr(f.name)}" oninput="cpSetFolder(${S.cpIdx},'name',this.value)">`)}
+    ${fld("ID (referenced by talkgroups)", `<input class="gin" value="${attr(f.id)}" oninput="cpSetFolder(${S.cpIdx},'id',this.value)">`)}
+    ${fld("Order", cpNumIn(`cpSetFolder(${S.cpIdx},'order',this.value,1)`, f.order))}
+    <button class="btn danger" onclick="cpDelFolder(${S.cpIdx})">${ic("minus")} Delete folder</button>`;
+}
+function cpSetFolder(i, k, v, num) { const f = S.cp.folders[i]; f[k] = num ? (v === "" ? null : parseInt(v, 10)) : v; S.cpDirty = true; }
+function cpDelFolder(i) { S.cp.folders.splice(i, 1); S.cpDirty = true; back(); }
+
+// -- scan lists --
+function renderCpScans() {
+  cpEnsure();
+  const sls = S.cp.scanlists;
+  if (!sls.length) return `<div class="empty">${ic("scan")}<div>No scan lists</div></div>`;
+  return sls.map((s, i) => `<div class="cpr" onclick="cpOpenScan(${i})">
+      <div class="cpr-b"><div class="cpr-t">${escapeHtml(s.name || "(unnamed)")}</div>
+        <div class="cpr-s">${(s.talkgroups || []).length} TGs \u00b7 ${s.active ? "active" : "inactive"}</div></div>
+      ${ic("chev", "chev")}</div>`).join("");
+}
+function cpOpenScan(i) { S.cpIdx = i; push("cpscanform"); }
+function cpAddScan() {
+  cpEnsure();
+  S.cp.scanlists.push({ name: "", talkgroups: [], active: false, order: S.cp.scanlists.length + 1 });
+  S.cpDirty = true; S.cpIdx = S.cp.scanlists.length - 1; push("cpscanform");
+}
+function renderCpScanForm() {
+  const s = S.cp && S.cp.scanlists[S.cpIdx];
+  if (!s) return backEmpty();
+  const chips = (S.cp.talkgroups || []).map(t => {
+    const on = (s.talkgroups || []).indexOf(t.gssi) >= 0;
+    return `<div class="ckchip ${on ? "on" : ""}" onclick="cpScanToggleTg(${S.cpIdx},${t.gssi})">${escapeHtml(t.name)} \u00b7 ${t.gssi}</div>`;
+  }).join("");
+  return `${fld("Name", `<input class="gin" value="${attr(s.name)}" oninput="cpSetScan(${S.cpIdx},'name',this.value)">`)}
+    <div class="fld"><label>Active</label>
+      <div class="panel"><div class="kv"><span class="k">Scan this list on register</span>
+        <div class="sltog ${s.active ? "on" : ""}" role="switch" aria-checked="${s.active}" onclick="cpScanActive(${S.cpIdx})"><span class="knob"></span></div></div></div></div>
+    ${fld("Order", cpNumIn(`cpSetScan(${S.cpIdx},'order',this.value,1)`, s.order))}
+    <div class="fld"><label>Talkgroups in this list</label>
+      <div class="cksel">${chips || '<span class="hint">Add talkgroups first.</span>'}</div></div>
+    <button class="btn danger" onclick="cpDelScan(${S.cpIdx})">${ic("minus")} Delete scan list</button>`;
+}
+function cpSetScan(i, k, v, num) { const s = S.cp.scanlists[i]; s[k] = num ? (v === "" ? null : parseInt(v, 10)) : v; S.cpDirty = true; }
+function cpScanActive(i) { const s = S.cp.scanlists[i]; s.active = !s.active; S.cpDirty = true; render(); }
+function cpScanToggleTg(i, g) {
+  const s = S.cp.scanlists[i]; const k = s.talkgroups.indexOf(g);
+  if (k >= 0) s.talkgroups.splice(k, 1); else s.talkgroups.push(g);
+  S.cpDirty = true; render();
+}
+function cpDelScan(i) { S.cp.scanlists.splice(i, 1); S.cpDirty = true; back(); }
+
+// -- frequency lists --
+function renderCpFreqs() {
+  cpEnsure();
+  const fls = S.cp.frequency_lists;
+  if (!fls.length) return `<div class="empty">${ic("activity")}<div>No frequency lists</div></div>`;
+  return fls.map((f, i) => `<div class="cpr" onclick="cpOpenFreq(${i})">
+      <div class="cpr-b"><div class="cpr-t">${escapeHtml(f.name || "(unnamed)")}</div>
+        <div class="cpr-s">${escapeHtml(f.mode || "List")} \u00b7 ${(f.frequencies || []).length} freqs</div></div>
+      ${ic("chev", "chev")}</div>`).join("");
+}
+function cpOpenFreq(i) { S.cpIdx = i; push("cpfreqform"); }
+function cpAddFreq() {
+  cpEnsure();
+  S.cp.frequency_lists.push({ name: "", mode: "List", frequencies: [], dwell_ms: null });
+  S.cpDirty = true; S.cpIdx = S.cp.frequency_lists.length - 1; push("cpfreqform");
+}
+function renderCpFreqForm() {
+  const f = S.cp && S.cp.frequency_lists[S.cpIdx];
+  if (!f) return backEmpty();
+  const modes = ["List", "Range"].map(m => `<option value="${m}" ${m === (f.mode || "List") ? "selected" : ""}>${m}</option>`).join("");
+  return `${fld("Name", `<input class="gin" value="${attr(f.name)}" oninput="cpSetFreq(${S.cpIdx},'name',this.value)">`)}
+    ${fld("Mode", `<select class="gin" onchange="cpSetFreq(${S.cpIdx},'mode',this.value)">${modes}</select>`)}
+    ${fld("Frequencies (Hz, comma-separated)", `<input class="gin" value="${attr((f.frequencies || []).join(", "))}" oninput="cpSetFreqList(${S.cpIdx},this.value)">`)}
+    ${fld("Dwell (ms, optional)", cpNumIn(`cpSetFreq(${S.cpIdx},'dwell_ms',this.value,1)`, f.dwell_ms))}
+    <button class="btn danger" onclick="cpDelFreq(${S.cpIdx})">${ic("minus")} Delete frequency list</button>`;
+}
+function cpSetFreq(i, k, v, num) { const f = S.cp.frequency_lists[i]; f[k] = num ? (v === "" ? null : parseInt(v, 10)) : v; S.cpDirty = true; }
+function cpSetFreqList(i, v) {
+  S.cp.frequency_lists[i].frequencies = v.split(",").map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
+  S.cpDirty = true;
+}
+function cpDelFreq(i) { S.cp.frequency_lists.splice(i, 1); S.cpDirty = true; back(); }
+
+// -- networks --
+function renderCpNets() {
+  cpEnsure();
+  const ns = S.cp.networks;
+  if (!ns.length) return `<div class="empty">${ic("activity")}<div>No networks</div></div>`;
+  return ns.map((n, i) => `<div class="cpr" onclick="cpOpenNet(${i})">
+      <div class="cpr-b"><div class="cpr-t">${escapeHtml(n.name || ("MCC " + n.mcc))}</div>
+        <div class="cpr-s">MCC ${n.mcc == null ? "\u2014" : n.mcc} \u00b7 MNC ${n.mnc == null ? "\u2014" : n.mnc} \u00b7 prio ${n.priority == null ? 0 : n.priority}</div></div>
+      ${ic("chev", "chev")}</div>`).join("");
+}
+function cpOpenNet(i) { S.cpIdx = i; push("cpnetform"); }
+function cpAddNet() {
+  cpEnsure();
+  S.cp.networks.push({ mcc: null, mnc: null, name: "", priority: 0 });
+  S.cpDirty = true; S.cpIdx = S.cp.networks.length - 1; push("cpnetform");
+}
+function renderCpNetForm() {
+  const n = S.cp && S.cp.networks[S.cpIdx];
+  if (!n) return backEmpty();
+  return `${fld("Name", `<input class="gin" value="${attr(n.name)}" oninput="cpSetNet(${S.cpIdx},'name',this.value)">`)}
+    ${fld("MCC", cpNumIn(`cpSetNet(${S.cpIdx},'mcc',this.value,1)`, n.mcc))}
+    ${fld("MNC", cpNumIn(`cpSetNet(${S.cpIdx},'mnc',this.value,1)`, n.mnc))}
+    ${fld("Priority", cpNumIn(`cpSetNet(${S.cpIdx},'priority',this.value,1)`, n.priority))}
+    <button class="btn danger" onclick="cpDelNet(${S.cpIdx})">${ic("minus")} Delete network</button>`;
+}
+function cpSetNet(i, k, v, num) { const n = S.cp.networks[i]; n[k] = num ? (v === "" ? null : parseInt(v, 10)) : v; S.cpDirty = true; }
+function cpDelNet(i) { S.cp.networks.splice(i, 1); S.cpDirty = true; back(); }
+
+// -- network identity --
+function renderCpIdent() {
+  cpEnsure();
+  const cp = S.cp;
+  return `<div class="hint">Home network the MS registers to, and the groups it attaches automatically.</div>
+    ${fld("Home MCC", cpNumIn("cpSetRoot('mcc',this.value)", cp.mcc))}
+    ${fld("Home MNC", cpNumIn("cpSetRoot('mnc',this.value)", cp.mnc))}
+    ${fld("Location area", cpNumIn("cpSetCell('location_area',this.value)", cp.cell_info.location_area))}
+    ${fld("Colour code", cpNumIn("cpSetCell('colour_code',this.value)", cp.cell_info.colour_code))}
+    ${fld("Attach groups (GSSI, comma-separated)", `<input class="gin" value="${attr((cp.attach_groups || []).join(", "))}" oninput="cpSetAttach(this.value)">`)}`;
+}
+function cpSetRoot(k, v) { S.cp[k] = (v === "" ? null : parseInt(v, 10)); S.cpDirty = true; }
+function cpSetCell(k, v) { S.cp.cell_info[k] = (v === "" ? null : parseInt(v, 10)); S.cpDirty = true; }
+function cpSetAttach(v) { S.cp.attach_groups = v.split(",").map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n)); S.cpDirty = true; }
+
+// -- save --
+function cpSave() {
+  cpEnsure();
+  for (const t of S.cp.talkgroups) {
+    if (t.gssi == null || !t.name) { showAlert("Incomplete talkgroup", "Every talkgroup needs a GSSI and a name.", "red"); return; }
+  }
+  for (const f of S.cp.folders) {
+    if (!f.id) { showAlert("Incomplete folder", "Every folder needs an ID.", "red"); return; }
+  }
+  send({ action: "set_codeplug", codeplug: S.cp });
+  S.cpDirty = false;
+  showAlert("Codeplug staged", "Saved to the MS \u2014 use Apply Config to activate.", "green");
+  // Re-read the stored config so the buffer reflects what the MS now holds.
+  S.cp = null; S.codeplug = null;
+  S._cpReq = send({ action: "get_config" });
+}
+
+// ---------- cell survey (manual carrier selection + register-to-cell) ----------
+function surveyManual() { return !!(S.state && S.state.selection_mode_manual); }
+function fmtMhz(hz) { return hz == null ? "\u2014" : (hz / 1e6).toFixed(4); }
+function ynd(v) { return v == null ? "\u2014" : v ? "Yes" : "No"; }
+function surveyToggleMode() {
+  const next = !surveyManual();
+  send({ action: "set_cell_selection_mode", manual: next });
+  if (S.state) S.state.selection_mode_manual = next;  // optimistic; GetState confirms
+  render();
+}
+function surveyScan() {
+  if (!surveyManual()) return;
+  S.scan = { rows: [], complete: false, found: 0, scanned: 0, scanning: true };
+  send({ action: "start_cell_scan" });
+  render();
+}
+function surveyStop() {
+  send({ action: "stop_cell_scan" });
+  if (S.scan) S.scan.scanning = false;
+  render();
+}
+function surveyCamp(carrier, register) {
+  send({ action: "camp_on_cell", carrier_hz: carrier, register: register });
+}
+function renderSurvey() {
+  const manual = surveyManual();
+  const sc = S.scan || { rows: [], complete: false, found: 0, scanned: 0, scanning: false };
+  const toggle = `<div class="panel"><div class="kv"><span class="k">Manual cell selection</span>
+      <div class="sltog ${manual ? "on" : ""}" role="switch" aria-checked="${manual}" onclick="surveyToggleMode()"><span class="knob"></span></div></div></div>`;
+  if (!manual) {
+    return toggle + `<div class="empty">${ic("scan")}<div>Auto mode</div>
+      <div class="hint" style="text-align:center;max-width:290px">The stack scans and camps on its own. Switch to Manual to survey the programmed carriers and pick a cell.</div></div>`;
+  }
+  const controls = sc.scanning
+    ? `<button class="btn danger" onclick="surveyStop()">${ic("x")} Stop scan</button>`
+    : `<button class="btn primary" onclick="surveyScan()">${ic("scan")} Scan cells</button>`;
+  let status = "";
+  if (sc.scanning) status = `<div class="hint">${ic("refresh")} Scanning\u2026 ${sc.rows.length} found so far</div>`;
+  else if (sc.complete) status = `<div class="hint">${sc.found} cell${sc.found === 1 ? "" : "s"} \u00b7 ${sc.scanned} carrier${sc.scanned === 1 ? "" : "s"} scanned</div>`;
+  let table;
+  if (sc.rows.length) {
+    table = sc.rows.map(r => {
+      const rssi = (r.rssi_dbfs == null) ? "\u2014" : r.rssi_dbfs.toFixed(1) + " dBFS";
+      return `<div class="srow">
+          <div class="srow-t">${fmtMhz(r.carrier_hz)} MHz</div>
+          <div class="srow-s">MCC ${r.mcc == null ? "\u2014" : r.mcc} \u00b7 MNC ${r.mnc == null ? "\u2014" : r.mnc} \u00b7 LA ${r.location_area == null ? "\u2014" : r.location_area} \u00b7 CC \u2014</div>
+          <div class="srow-s">${rssi} \u00b7 Reg-req ${ynd(r.registration_required)} \u00b7 Late-entry ${ynd(r.late_entry_supported)}</div>
+          <div class="srow-act">
+            <button class="btn primary" onclick="surveyCamp(${r.carrier_hz}, true)">${ic("login")} Register</button>
+            <button class="btn ghost" onclick="surveyCamp(${r.carrier_hz}, false)">${ic("activity")} Monitor</button>
+          </div>
+        </div>`;
+    }).join("");
+  } else if (sc.scanning) {
+    table = "";
+  } else {
+    table = `<div class="empty">${ic("scan")}<div>No cells yet</div>
+      <div class="hint" style="text-align:center;max-width:290px">Tap Scan to survey the programmed carriers. The survey is receive-only \u2014 it transmits nothing on air.</div></div>`;
+  }
+  return toggle + controls + status + table;
+}
+
 function renderInfo() {
   const id = identity();
   return `<div class="panel">
@@ -2282,6 +2650,18 @@ const NAVBAR = {
   deregister: { right: ["check", "Confirm", "doDeregister()"] },
   dialer:     { right: null },
   incall:     { left: SK_HOME, center: null, right: ["phoneOff", "Hang up", "hangupCurrent()", "danger"] },
+  cpedit:     { right: ["check", "Save", "cpSave()"] },
+  cptgs:      { right: ["plus", "Add", "cpAddTg()"] },
+  cptgform:   { right: ["check", "Done", "back()"] },
+  cpfolders:  { right: ["plus", "Add", "cpAddFolder()"] },
+  cpfolderform: { right: ["check", "Done", "back()"] },
+  cpscans:    { right: ["plus", "Add", "cpAddScan()"] },
+  cpscanform: { right: ["check", "Done", "back()"] },
+  cpfreqs:    { right: ["plus", "Add", "cpAddFreq()"] },
+  cpfreqform: { right: ["check", "Done", "back()"] },
+  cpnets:     { right: ["plus", "Add", "cpAddNet()"] },
+  cpnetform:  { right: ["check", "Done", "back()"] },
+  cpident:    { right: ["check", "Done", "back()"] },
 };
 
 function skBtn(spec) {

@@ -203,6 +203,41 @@ def activate_scanlist(handle: int, name: str, active: bool) -> dict[str, Any]:
                                             "active": bool(active)}})
 
 
+# --- Manual cell selection / survey (interface-3, Plane B) -------------------
+# Receive-only carrier survey and manual camp/register. The MS RF stack owns
+# scanning, cell-identity parsing, camp (cl. 18.3.4.6) and registration (cl. 16.4);
+# these commands just drive it. Each is answered with a management ``Ack``.
+
+def set_cell_selection_mode(handle: int, manual: bool) -> dict[str, Any]:
+    """Switch cell selection between Auto (stack camps itself) and Manual."""
+    return management({"SetCellSelectionMode": {"handle": handle, "manual": bool(manual)}})
+
+
+def start_cell_scan(handle: int) -> dict[str, Any]:
+    """Survey the combined ``[[frequency_list]]`` candidate set once (no wrap).
+
+    Emits one ``MsScanResult`` telemetry event per found cell, then a single
+    ``MsScanComplete``. Receive-only — transmits nothing on air.
+    """
+    return management({"StartCellScan": {"handle": handle}})
+
+
+def stop_cell_scan(handle: int) -> dict[str, Any]:
+    """Abort an in-progress survey (a completion still arrives for cells seen)."""
+    return management({"StopCellScan": {"handle": handle}})
+
+
+def camp_on_cell(handle: int, carrier_hz: int, register: bool) -> dict[str, Any]:
+    """Camp on ``carrier_hz`` (a programmed downlink carrier) and optionally register.
+
+    ``register=True`` forces an ITSI attach even if the cell advertises
+    registration-not-required. An unknown carrier is rejected (``accepted:false``).
+    """
+    return management({"CampOnCell": {"handle": handle,
+                                      "carrier_hz": int(carrier_hz),
+                                      "register": bool(register)}})
+
+
 # --- Call control (TNCC / CMCE) vocabularies --------------------------------
 # Top-level ControlCommand variants (NOT wrapped in Management), answered with a
 # transport-only TnccAck; real call progress arrives later on telemetry.

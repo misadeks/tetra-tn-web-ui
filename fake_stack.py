@@ -19,6 +19,11 @@ import base64
 import logging
 import random
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    import tomli as tomllib  # type: ignore
+
 import websockets
 from websockets.client import connect
 
@@ -142,6 +147,33 @@ SCANLISTS = [
     {"name": "Ops", "gssis": [220, 300], "active": False, "order": 2},
 ]
 
+# Simulated over-the-air cells, keyed by downlink carrier (Hz). A survey "finds" a
+# programmed carrier only if it is both in the codeplug [[frequency_list]] AND here.
+# 439850000 is a SYNC-only capture (SYSINFO not seen in dwell → null LA / reg-req).
+# colour_code is a MAC-layer quantity not exposed at MLE → always null.
+SURVEY_CELLS = {
+    439825000: {"mcc": 901, "mnc": 9999, "location_area": 1, "colour_code": None,
+                "rssi_dbfs": -55.0, "registration_required": True,
+                "late_entry_supported": True},
+    439850000: {"mcc": 901, "mnc": 9999, "location_area": None, "colour_code": None,
+                "rssi_dbfs": -72.5, "registration_required": None,
+                "late_entry_supported": True},
+}
+
+
+def _programmed_carriers(state: "FakeState") -> list[int]:
+    """Union of downlink carriers across every [[frequency_list]] in the codeplug."""
+    try:
+        doc = tomllib.loads(state.config_toml or "")
+    except Exception:
+        return []
+    carriers: list[int] = []
+    for fl in doc.get("frequency_list", []):
+        for f in fl.get("frequencies", []):
+            if isinstance(f, int) and f not in carriers:
+                carriers.append(f)
+    return carriers
+
 
 class FakeState:
     def __init__(self) -> None:
@@ -156,8 +188,16 @@ class FakeState:
         self.attached_groups: list[int] = []
         self.group_op_in_progress = False
         self.restart_required = False
+        # Staged config document. GetConfig serves this; SetConfig replaces it so
+        # codeplug edits round-trip back to the browser in --simulate mode.
+        self.config_toml = SAMPLE_TOML
         # Names of the scan lists currently active (seeded from programmed default).
         self.active_scanlists: list[str] = [sl["name"] for sl in SCANLISTS if sl["active"]]
+        # Manual cell selection: when True the stack waits for CampOnCell instead of
+        # auto-camping; a survey is running while scan_in_progress is set.
+        self.selection_mode_manual = False
+        self.scan_in_progress = False
+        self.scan_abort = False
         # Live CMCE calls keyed on call_identifier. Each: {direction, group,
         # simplex, peer_ssi, floor (None|"own"|<ssi>), state}.
         self.calls: dict[int, dict] = {}
@@ -190,6 +230,7 @@ class FakeState:
             "colour_code": self.colour_code,
             "attached_groups": sorted(self.attached_groups),
             "active_scanlists": list(self.active_scanlists),
+            "selection_mode_manual": self.selection_mode_manual,
             "restart_required": self.restart_required,
         }
 
@@ -346,8 +387,11 @@ async def _handle_management(state: FakeState, ws, payload: dict) -> None:
     elif inner_variant == "GetState":
         resp = {"Management": {"State": {"handle": handle, "state": state.ms_runtime_state()}}}
     elif inner_variant == "GetConfig":
-        resp = {"Management": {"Config": {"handle": handle, "toml": SAMPLE_TOML}}}
+        resp = {"Management": {"Config": {"handle": handle, "toml": state.config_toml}}}
     elif inner_variant == "SetConfig":
+        new_toml = inner.get("toml") if isinstance(inner, dict) else None
+        if new_toml:
+            state.config_toml = new_toml
         state.restart_required = True
         resp = {"Management": {"Ack": {"handle": handle, "accepted": True,
                                        "restart_required": True, "message": "staged"}}}
@@ -357,6 +401,38 @@ async def _handle_management(state: FakeState, ws, payload: dict) -> None:
     elif inner_variant == "ActivateScanlist":
         await _handle_activate_scanlist(state, ws, handle, inner)
         return
+    elif inner_variant == "SetCellSelectionMode":
+        state.selection_mode_manual = bool(inner.get("manual"))
+        resp = {"Management": {"Ack": {"handle": handle, "accepted": True,
+                                       "restart_required": False,
+                                       "message": "manual" if state.selection_mode_manual else "auto"}}}
+    elif inner_variant == "StartCellScan":
+        if state.scan_in_progress:
+            resp = {"Management": {"Ack": {"handle": handle, "accepted": False,
+                                           "restart_required": False,
+                                           "message": "a survey is already running"}}}
+        else:
+            state.scan_in_progress = True
+            state.scan_abort = False
+            resp = {"Management": {"Ack": {"handle": handle, "accepted": True,
+                                           "restart_required": False, "message": "scanning"}}}
+            asyncio.create_task(_scenario_scan(state))
+    elif inner_variant == "StopCellScan":
+        state.scan_abort = True
+        resp = {"Management": {"Ack": {"handle": handle, "accepted": True,
+                                       "restart_required": False, "message": "stopping"}}}
+    elif inner_variant == "CampOnCell":
+        carrier = inner.get("carrier_hz")
+        register = bool(inner.get("register"))
+        if carrier not in _programmed_carriers(state):
+            resp = {"Management": {"Ack": {"handle": handle, "accepted": False,
+                                           "restart_required": False,
+                                           "message": f"unknown carrier {carrier}"}}}
+        else:
+            resp = {"Management": {"Ack": {"handle": handle, "accepted": True,
+                                           "restart_required": False,
+                                           "message": "registering" if register else "camping"}}}
+            asyncio.create_task(_scenario_camp(state, int(carrier), register))
     else:
         resp = {"Management": {"Error": {"handle": handle, "message": f"unsupported: {inner_variant}"}}}
 
@@ -400,6 +476,58 @@ async def _handle_activate_scanlist(state: FakeState, ws, handle, inner: dict) -
         state.emit({"MsGroupAttach": {"issi": state.own_issi, "gssis": sorted(added)}})
     if removed:
         state.emit({"MsGroupDetach": {"issi": state.own_issi, "gssis": sorted(removed)}})
+
+
+async def _scenario_scan(state: FakeState) -> None:
+    """Survey the programmed carriers once, emitting a MsScanResult per found cell."""
+    carriers = _programmed_carriers(state)
+    found = 0
+    scanned = 0
+    for carrier in carriers:
+        if state.scan_abort:
+            break
+        scanned += 1
+        await asyncio.sleep(0.4)  # per-carrier dwell
+        cell = SURVEY_CELLS.get(carrier)
+        if cell is not None:
+            found += 1
+            state.emit({"MsScanResult": {"carrier_hz": carrier, **cell}})
+    state.emit({"MsScanComplete": {"found": found, "scanned": scanned}})
+    state.scan_in_progress = False
+    state.scan_abort = False
+
+
+async def _scenario_camp(state: FakeState, carrier: int, register: bool) -> None:
+    """Camp on a surveyed carrier and, if requested, force an ITSI registration."""
+    cell = SURVEY_CELLS.get(carrier, {})
+    await asyncio.sleep(0.6)  # SwMI latency
+    mcc = cell.get("mcc", state.home_mcc)
+    mnc = cell.get("mnc", state.home_mnc)
+    la = cell.get("location_area") or 1
+    state.rssi_dbfs = cell.get("rssi_dbfs")
+    state.serving_la = la
+
+    if not register:
+        state.registration_state = "Idle"
+        state.service_status = "InServiceWaitingForRegistration"
+        state.emit({"TnmmServiceIndication": {
+            "service_status": "InServiceWaitingForRegistration", "disable_status": "Enabled"}})
+        return
+
+    state.registration_state = "Registered"
+    state.service_status = "InService"
+    state.colour_code = state.colour_code or 1
+    state.attached_groups = state.desired_groups()
+    state.emit({"TnmmRegistrationConfirm": {
+        "registration_status": "Success",
+        "registration_reject_cause": None,
+        "cell_type_where_registered": "CaCell",
+        "la_where_registered": la, "mcc_where_registered": mcc, "mnc_where_registered": mnc,
+    }})
+    state.emit({"MsRegistration": {"issi": state.own_issi}})
+    if state.attached_groups:
+        state.emit({"MsGroupAttach": {"issi": state.own_issi, "gssis": list(state.attached_groups)}})
+    state.emit({"TnmmServiceIndication": {"service_status": "InService", "disable_status": "Enabled"}})
 
 
 # --- telemetry scenarios -----------------------------------------------------

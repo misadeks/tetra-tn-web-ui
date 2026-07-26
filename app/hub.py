@@ -537,6 +537,7 @@ class Hub:
 
         net = doc.get("net_info", {}) if isinstance(doc.get("net_info"), dict) else {}
         ms = doc.get("ms", {}) if isinstance(doc.get("ms"), dict) else {}
+        cell = doc.get("cell_info", {}) if isinstance(doc.get("cell_info"), dict) else {}
 
         def _rows(key: str) -> list[dict]:
             v = doc.get(key)
@@ -567,11 +568,23 @@ class Hub:
              "order": int(sl.get("order", 0))}
             for sl in _rows("scanlist") if sl.get("name")
         ]
+        frequency_lists = [
+            {"name": str(fl.get("name", "")),
+             "mode": str(fl.get("mode", "List")),
+             "frequencies": [int(g) for g in fl.get("frequencies", []) if g is not None],
+             "dwell_ms": (int(fl["dwell_ms"]) if fl.get("dwell_ms") is not None else None)}
+            for fl in _rows("frequency_list") if fl.get("name")
+        ]
         return {
             "folders": folders,
             "talkgroups": talkgroups,
             "networks": networks,
             "scanlists": scanlists,
+            "frequency_lists": frequency_lists,
+            "cell_info": {
+                "location_area": (int(cell["location_area"]) if cell.get("location_area") is not None else None),
+                "colour_code": (int(cell["colour_code"]) if cell.get("colour_code") is not None else None),
+            },
             "mcc": net.get("mcc"),
             "mnc": net.get("mnc"),
             "attach_groups": [int(g) for g in ms.get("attach_groups", []) if g is not None],

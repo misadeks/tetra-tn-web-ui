@@ -186,6 +186,10 @@ async def _on_telemetry_message(hub: Hub, raw) -> None:
     if envelope.get("variant") in _STATE_CHANGING_EVENTS:
         try:
             await hub.send_command(protocol.get_state, silent=True)
+            # If we don't have the codeplug yet, grab it now that the MS state
+            # changed (covers a connect-time fetch that raced the link coming up).
+            if _needs_config(hub):
+                await hub.send_command(protocol.get_config, silent=True)
         except Exception:  # pragma: no cover - best effort
             pass
 
@@ -212,5 +216,15 @@ async def poll_state_loop(hub: Hub, interval: float) -> None:
         if hub.control_connected:
             try:
                 await hub.send_command(protocol.get_state, silent=True)
+                # If we still have no codeplug, keep asking. The MS serves its
+                # config as soon as the control link is up (no registration
+                # needed); this just covers a lost/raced connect-time fetch.
+                if _needs_config(hub):
+                    await hub.send_command(protocol.get_config, silent=True)
             except Exception:
                 pass
+
+
+def _needs_config(hub: Hub) -> bool:
+    toml = hub.last_config_toml
+    return not (toml and toml.strip())

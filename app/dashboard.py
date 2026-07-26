@@ -18,6 +18,7 @@ import websockets
 from websockets.server import WebSocketServerProtocol, serve
 
 from . import protocol
+from . import codeplug as codeplug_mod
 from .config import DashboardConfig
 from .hub import Hub
 
@@ -129,6 +130,21 @@ async def _on_browser_message(hub: Hub, ws: Any, raw) -> None:
         elif action == "set_config":
             toml = msg.get("toml", "")
             await hub.send_command(protocol.set_config, toml)
+        elif action == "set_codeplug":
+            base = hub.last_config_toml
+            if not base:
+                await _reply_error(ws, action, "no config loaded yet — read config first")
+                return
+            payload = msg.get("codeplug")
+            if not isinstance(payload, dict):
+                await _reply_error(ws, action, "codeplug payload required")
+                return
+            try:
+                new_toml = codeplug_mod.merge_codeplug(base, payload)
+            except Exception as exc:  # malformed payload / serialize error
+                await _reply_error(ws, action, f"codeplug merge failed: {exc}")
+                return
+            await hub.send_command(protocol.set_config, new_toml)
         elif action == "apply_config":
             await hub.send_command(protocol.apply_config)
         elif action == "activate_scanlist":
@@ -138,6 +154,23 @@ async def _on_browser_message(hub: Hub, ws: Any, raw) -> None:
                 return
             active = bool(msg.get("active"))
             await hub.send_command(protocol.activate_scanlist, str(name), active)
+        elif action == "set_cell_selection_mode":
+            await hub.send_command(protocol.set_cell_selection_mode, bool(msg.get("manual")))
+        elif action == "start_cell_scan":
+            await hub.send_command(protocol.start_cell_scan)
+        elif action == "stop_cell_scan":
+            await hub.send_command(protocol.stop_cell_scan)
+        elif action == "camp_on_cell":
+            carrier = msg.get("carrier_hz")
+            if carrier is None:
+                await _reply_error(ws, action, "carrier_hz required")
+                return
+            try:
+                carrier = int(carrier)
+            except (TypeError, ValueError):
+                await _reply_error(ws, action, "carrier_hz must be an integer")
+                return
+            await hub.send_command(protocol.camp_on_cell, carrier, bool(msg.get("register")))
         elif action == "attach_detach_group":
             op = msg.get("op") or form.get("op")
             report = msg.get("report") or "ReportNotRequested"
